@@ -21,6 +21,9 @@ use ropey::Rope;
 
 use crate::mode::EditorMode;
 
+const CONTROL_SCROLL: usize = 10;
+const MOUSE_SCROLL: usize = 3;
+
 pub struct Editor {
     pub text: Rope,
     pub cursor_x: usize,
@@ -146,7 +149,7 @@ impl Editor {
             KeyCode::Down => {
                 let nb_lines = self.text.len_lines();
                 let jump = if key.modifiers == KeyModifiers::CONTROL {
-                    (nb_lines - 1 - self.cursor_y).min(10)
+                    (nb_lines - 1 - self.cursor_y).min(CONTROL_SCROLL)
                 } else {
                     1
                 };
@@ -162,7 +165,7 @@ impl Editor {
             }
             KeyCode::Up => {
                 let jump = if key.modifiers == KeyModifiers::CONTROL {
-                    self.cursor_y.min(10)
+                    self.cursor_y.min(CONTROL_SCROLL)
                 } else {
                     1
                 };
@@ -282,13 +285,16 @@ impl Editor {
     fn handle_mouse(&mut self, mouse_event: MouseEvent) -> Result<()> {
         match mouse_event.kind {
             MouseEventKind::ScrollDown => {
-                if self.cursor_y < self.text.len_lines() - 3 {
-                    self.cursor_y += 3;
+                let nb_lines = self.text.len_lines();
+                if self.cursor_y < nb_lines - MOUSE_SCROLL {
+                    self.cursor_y += MOUSE_SCROLL;
+                } else {
+                    self.cursor_y = nb_lines - 1;
                 }
             }
             MouseEventKind::ScrollUp => {
-                if self.cursor_y >= 3 {
-                    self.cursor_y -= 3;
+                if self.cursor_y >= MOUSE_SCROLL {
+                    self.cursor_y -= MOUSE_SCROLL;
                 } else {
                     self.cursor_y = 0;
                 }
