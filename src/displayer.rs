@@ -9,7 +9,11 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
 };
 
-use crate::{editor::Editor, mode::EditorMode};
+use crate::{
+    diagnostic::{DiagnosticLevel, DiagnosticState},
+    editor::Editor,
+    mode::EditorMode,
+};
 
 pub struct Displayer {
     terminal: Terminal<CrosstermBackend<Stdout>>,
@@ -32,30 +36,36 @@ impl Displayer {
             self.terminal.hide_cursor()?;
         }
 
+        let diag = editor.diag_snapshot();
+
         self.terminal.draw(|f| {
             let size = f.area();
 
             let vertical = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(1), // tab bar
-                    Constraint::Min(1),    // editor
-                    Constraint::Length(1), // status
+                    Constraint::Length(1),
+                    Constraint::Min(1),
+                    Constraint::Length(1),
                 ])
                 .split(size);
 
             Self::render_tab_bar(editor, f, vertical[0]);
-            Self::render_status(editor, f, vertical[2]);
+            Self::render_status(editor, &diag, f, vertical[2]);
 
             let main_h = if editor.show_tree {
                 Layout::default()
                     .direction(Direction::Horizontal)
-                    .constraints([Constraint::Length(25), Constraint::Min(1)])
+                    .constraints([
+                        Constraint::Length(25),
+                        Constraint::Min(1),
+                        Constraint::Percentage(30),
+                    ])
                     .split(vertical[1])
             } else {
                 Layout::default()
                     .direction(Direction::Horizontal)
-                    .constraints([Constraint::Min(1)])
+                    .constraints([Constraint::Min(1), Constraint::Percentage(30)])
                     .split(vertical[1])
             };
 
@@ -68,8 +78,14 @@ impl Displayer {
             } else {
                 main_h[0]
             };
+            let diag_area = if editor.show_tree {
+                main_h[2]
+            } else {
+                main_h[1]
+            };
 
-            Self::render_editor(editor, f, editor_area, is_cursor_visible);
+            Self::render_editor(editor, &diag, f, editor_area, is_cursor_visible);
+            Self::render_diagnostics(&diag, f, diag_area);
         })?;
 
         Ok(())
@@ -80,16 +96,37 @@ impl Displayer {
         size.height.saturating_sub(4) as usize // tab + borders + status
     }
 
-    fn render_editor(editor: &Editor, f: &mut Frame, area: Rect, show_cursor: bool) {
+    fn render_editor(
+        editor: &Editor,
+        diag: &DiagnosticState,
+        f: &mut Frame,
+        area: Rect,
+        show_cursor: bool,
+    ) {
         let visible_height = area.height.saturating_sub(2) as usize;
-
         let Some(buf) = editor.buf() else { return };
 
         let lines: Vec<Line> = (buf.scroll_y
             ..buf.text.len_lines().min(buf.scroll_y + visible_height))
             .map(|i| {
-                let num =
-                    Span::styled(format!("{:>4} │ ", i), Style::default().fg(Color::DarkGray));
+                let has_err = diag
+                    .diagnostics
+                    .iter()
+                    .any(|d| d.line == Some(i) && d.level == DiagnosticLevel::Error);
+                
+                let has_warn = diag
+                    .diagnostics
+                    .iter()
+                    .any(|d| d.line == Some(i) && d.level == DiagnosticLevel::Warning);
+                let num_color = if has_err {
+                    Color::Red
+                } else if has_warn {
+                    Color::Yellow
+                } else {
+                    Color::DarkGray
+                };
+
+                let num = Span::styled(format!("{:>4} │ ", i), Style::default().fg(num_color));
                 let mut text = buf.text.line(i).to_string();
                 if text.ends_with('\n') {
                     text.pop();
@@ -133,10 +170,26 @@ impl Displayer {
         f.render_widget(Paragraph::new(Line::from(spans)), rect);
     }
 
-    fn render_status(editor: &Editor, f: &mut Frame, rect: Rect) {
+    fn render_status(editor: &Editor, diag: &DiagnosticState, f: &mut Frame, rect: Rect) {
         let mut components = if let Some(buf) = editor.buf()
             && let Some(active_buffer) = editor.active_buffer
         {
+            // Info diagnostics
+            let diag_info = if diag.is_running {
+                Span::styled(" [checking...] ", Style::default().fg(Color::Gray))
+            } else {
+                let e = diag.error_count();
+                let w = diag.warning_count();
+                if e > 0 || w > 0 {
+                    Span::styled(
+                        format!(" [E:{} W:{}] ", e, w),
+                        Style::default().fg(if e > 0 { Color::Red } else { Color::Yellow }),
+                    )
+                } else {
+                    Span::styled(" [✓] ", Style::default().fg(Color::Green))
+                }
+            };
+
             vec![
                 Span::styled(format!(" {} ", editor.mode), editor.mode.get_style()),
                 Span::styled(
@@ -149,6 +202,7 @@ impl Displayer {
                     active_buffer + 1,
                     editor.buffers.len()
                 )),
+                diag_info,
             ]
         } else {
             vec![Span::styled(
@@ -162,5 +216,98 @@ impl Displayer {
         }
 
         f.render_widget(Paragraph::new(Line::from(components)), rect);
+    }
+
+    fn render_diagnostics(diag: &DiagnosticState, f: &mut Frame, area: Rect) {
+        let title = if diag.is_running {
+            " Diagnostics (checking...) "
+        } else if diag.diagnostics.is_empty() {
+            " Diagnostics ✓ "
+        } else {
+            " Diagnostics "
+        };
+
+        let mut lines: Vec<Line> = Vec::new();
+
+        if diag.is_running {
+            lines.push(Line::from(Span::styled(
+                "⟳ Running cargo check...",
+                Style::default().fg(Color::Gray),
+            )));
+        } else if diag.diagnostics.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "✓ No errors or warnings",
+                Style::default().fg(Color::Green),
+            )));
+        } else {
+            // Résumé
+            let e = diag.error_count();
+            let w = diag.warning_count();
+            let mut summary = Vec::new();
+            if e > 0 {
+                summary.push(Span::styled(
+                    format!(" {} error{} ", e, if e > 1 { "s" } else { "" }),
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ));
+            }
+            if w > 0 {
+                summary.push(Span::styled(
+                    format!(" {} warning{} ", w, if w > 1 { "s" } else { "" }),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ));
+            }
+            lines.push(Line::from(summary));
+            lines.push(Line::from(
+                "─".repeat(area.width.saturating_sub(2) as usize),
+            ));
+
+            // Chaque diagnostic
+            for d in &diag.diagnostics {
+                let (icon, color) = match d.level {
+                    DiagnosticLevel::Error => ("✗", Color::Red),
+                    DiagnosticLevel::Warning => ("▲", Color::Yellow),
+                };
+                let loc = match (d.line, d.column) {
+                    (Some(l), Some(c)) => format!(" L{}:{}", l + 1, c),
+                    (Some(l), None) => format!(" L{}", l + 1),
+                    _ => String::new(),
+                };
+                lines.push(Line::from(vec![
+                    Span::styled(format!("{} ", icon), Style::default().fg(color)),
+                    Span::styled(loc, Style::default().fg(Color::DarkGray)),
+                ]));
+
+                let max_w = area.width.saturating_sub(4) as usize;
+                if max_w > 0 {
+                    for chunk in d
+                        .message
+                        .chars()
+                        .collect::<Vec<_>>()
+                        .chunks(max_w)
+                        .map(|c| c.iter().collect::<String>())
+                    {
+                        lines.push(Line::from(Span::styled(
+                            format!("  {}", chunk),
+                            Style::default().fg(color),
+                        )));
+                    }
+                }
+                lines.push(Line::from(""));
+            }
+        }
+
+        let block = Block::default()
+            .title(title)
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray));
+
+        f.render_widget(
+            Paragraph::new(lines)
+                .block(block)
+                .wrap(ratatui::widgets::Wrap { trim: false }),
+            area,
+        );
     }
 }

@@ -237,11 +237,11 @@ impl EditorMode {
                 Ok(Self::Nav)
             }
             "w" => {
-                editor.save_file()?;
+                editor.save_and_check()?;
                 Ok(former_mode.clone())
             }
             "wq" => {
-                editor.save_file()?;
+                editor.save_and_check()?;
                 editor.should_quit = true;
                 Ok(Self::Nav)
             }

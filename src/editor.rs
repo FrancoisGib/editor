@@ -1,5 +1,6 @@
 use std::{
     path::{Path, PathBuf},
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -12,7 +13,13 @@ use crossterm::{
 };
 use ratatui::{Terminal, prelude::CrosstermBackend};
 
-use crate::{buffer::Buffer, displayer::Displayer, mode::EditorMode, tree::FileTree};
+use crate::{
+    buffer::Buffer,
+    diagnostic::{DiagnosticState, spawn_cargo_check},
+    displayer::Displayer,
+    mode::EditorMode,
+    tree::FileTree,
+};
 
 pub struct Editor {
     pub buffers: Vec<Buffer>,
@@ -21,6 +28,7 @@ pub struct Editor {
     pub mode: EditorMode,
     pub file_tree: FileTree,
     pub show_tree: bool,
+    pub diag_state: Arc<Mutex<DiagnosticState>>,
 }
 
 impl Editor {
@@ -47,6 +55,12 @@ impl Editor {
             EditorMode::Nav
         };
 
+        let diag_state = Arc::new(Mutex::new(DiagnosticState::new()));
+
+        if !canon_path.is_dir() {
+            spawn_cargo_check(&diag_state, &canon_path);
+        }
+
         Ok(Self {
             buffers,
             active_buffer,
@@ -54,6 +68,7 @@ impl Editor {
             mode,
             file_tree: FileTree::new(&project_dir),
             show_tree: true,
+            diag_state,
         })
     }
 
@@ -82,7 +97,7 @@ impl Editor {
 
             displayer.draw(&self)?;
 
-            if event::poll(Duration::from_millis(1))? {
+            if event::poll(Duration::from_millis(50))? {
                 let event = event::read()?;
                 self.handle_event(event)?;
             }
@@ -95,6 +110,27 @@ impl Editor {
             DisableMouseCapture,
             SetCursorStyle::DefaultUserShape
         )?;
+        Ok(())
+    }
+
+    pub fn diag_snapshot(&self) -> DiagnosticState {
+        self.diag_state
+            .lock()
+            .map(|s| s.clone())
+            .unwrap_or_else(|_| DiagnosticState::new())
+    }
+
+    pub fn run_check(&self) {
+        if let Some(buf) = self.buf()
+            && let Some(path) = &buf.filepath
+        {
+            spawn_cargo_check(&self.diag_state, path);
+        }
+    }
+
+    pub fn save_and_check(&mut self) -> Result<()> {
+        self.save_file()?;
+        self.run_check();
         Ok(())
     }
 
@@ -132,6 +168,8 @@ impl Editor {
         self.buffers.push(Buffer::from_file(&canon));
         self.active_buffer = Some(self.buffers.len() - 1);
 
+        spawn_cargo_check(&self.diag_state, &canon);
+
         Ok(())
     }
 
@@ -142,6 +180,8 @@ impl Editor {
         self.buffers.remove(idx);
         if !self.buffers.is_empty() {
             self.active_buffer = Some(self.buffers.len() - 1);
+        } else {
+            self.active_buffer = None;
         }
     }
 
