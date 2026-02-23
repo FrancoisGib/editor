@@ -1,9 +1,9 @@
-use std::{path::PathBuf, time::Duration};
+use std::{time::Duration};
 
 use anyhow::Result;
 use crossterm::{
     event::{
-        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
+        self, DisableMouseCapture, EnableMouseCapture,
     },
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
@@ -16,71 +16,11 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
 };
-use ropey::Rope;
 
-struct Editor {
-    text: Rope,
-    cursor_x: usize,
-    cursor_y: usize,
-    filename: String,
-    _filepath: PathBuf,
-    should_quit: bool,
-    scroll_y: usize,
-}
+use crate::editor::Editor;
 
-impl Editor {
-    fn new(filename: &str) -> Self {
-        let text = std::fs::read_to_string(filename)
-            .map(|s| Rope::from_str(&s))
-            .unwrap_or_else(|_| Rope::new());
-        let filepath = PathBuf::from(filename)
-            .canonicalize()
-            .unwrap_or_else(|_| PathBuf::from(filename));
-
-        Self {
-            text,
-            cursor_x: 0,
-            cursor_y: 0,
-            filename: filename.into(),
-            _filepath: filepath,
-            should_quit: false,
-            scroll_y: 0,
-        }
-    }
-
-    fn insert(&mut self, c: char) {
-        let pos = self.line_start() + self.cursor_x;
-        self.text.insert_char(pos, c);
-        self.cursor_x += 1;
-    }
-
-    fn line_start(&self) -> usize {
-        self.text.line_to_char(self.cursor_y)
-    }
-
-    fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
-        match key.code {
-            KeyCode::Char('q') if key.modifiers == KeyModifiers::CONTROL => {
-                self.should_quit = true;
-            }
-            KeyCode::Down => {
-                if self.text.len_lines() - 1 > self.cursor_y {
-                    self.cursor_y += 1;
-                }
-            }
-            KeyCode::Up => {
-                if self.cursor_y > 0 {
-                    self.cursor_y -= 1;
-                }
-            }
-            KeyCode::Char(c) => {
-                self.insert(c);
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-}
+mod editor;
+mod mode;
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -110,22 +50,12 @@ fn main() -> Result<()> {
                 .constraints([Constraint::Min(1), Constraint::Length(1)])
                 .split(size);
 
-            let status = Line::from(vec![
-                Span::styled(
-                    format!(" {} ", editor.filename),
-                    Style::default().fg(Color::Black).bg(Color::White),
-                ),
-                Span::raw(format!(
-                    "  L:{} C:{}",
-                    editor.cursor_y + 1,
-                    editor.cursor_x + 1
-                )),
-            ]);
-            f.render_widget(Paragraph::new(status), vertical[1]);
+            editor.render_status(f, vertical[1]);
 
             let main_h = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
+                // .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
+                .constraints([Constraint::Min(1)])
                 .split(vertical[0]);
 
             let editor_h = Layout::default()
@@ -187,14 +117,9 @@ fn main() -> Result<()> {
             break;
         }
 
-        if event::poll(Duration::from_millis(50))? {
-            match event::read()? {
-                Event::Key(key) => {
-                    editor.handle_key(key)?;
-                }
-                Event::Mouse(_mouse) => {}
-                _ => {}
-            }
+        if event::poll(Duration::from_millis(10))? {
+            let event = event::read()?;
+            editor.handle_event(event)?;
         }
     }
 
