@@ -3,6 +3,7 @@ use anyhow::Result;
 use crate::editor::Editor;
 
 mod buffer;
+mod displayer;
 mod editor;
 mod mode;
 mod tree;

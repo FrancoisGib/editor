@@ -1,5 +1,4 @@
 use std::{
-    io::Stdout,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -14,28 +13,21 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{
-    Frame, Terminal,
-    layout::{Constraint, Direction, Layout, Position, Rect},
-    prelude::CrosstermBackend,
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
-};
+use ratatui::{Terminal, prelude::CrosstermBackend};
 
-use crate::{buffer::Buffer, mode::EditorMode, tree::FileTree};
+use crate::{buffer::Buffer, displayer::Displayer, mode::EditorMode, tree::FileTree};
 
 const CONTROL_SCROLL: usize = 10;
 const MOUSE_SCROLL: usize = 3;
 
 pub struct Editor {
-    buffers: Vec<Buffer>,
-    active_buffer: Option<usize>,
+    pub buffers: Vec<Buffer>,
+    pub active_buffer: Option<usize>,
     should_quit: bool,
-    mode: EditorMode,
-    command_str: String,
-    file_tree: FileTree,
-    show_tree: bool,
+    pub mode: EditorMode,
+    pub command_str: String,
+    pub file_tree: FileTree,
+    pub show_tree: bool,
     former_mode: EditorMode,
 }
 
@@ -75,9 +67,59 @@ impl Editor {
         })
     }
 
-    fn buf(&self) -> Option<&Buffer> {
+    pub fn run(mut self) -> Result<()> {
+        enable_raw_mode()?;
+        let mut stdout = std::io::stdout();
+        execute!(
+            stdout,
+            EnterAlternateScreen,
+            EnableMouseCapture,
+            SetCursorStyle::SteadyBar
+        )?;
+        let backend = CrosstermBackend::new(stdout);
+        let terminal = Terminal::new(backend)?;
+        let mut displayer = Displayer::new(terminal);
+
+        loop {
+            if self.should_quit {
+                break;
+            }
+
+            let vh = displayer.viewport_height();
+            if let Some(buf) = self.buf_mut() {
+                buf.compute_scroll(vh);
+            }
+
+            displayer.draw(&self)?;
+
+            if event::poll(Duration::from_millis(1))? {
+                let event = event::read()?;
+                self.handle_event(event)?;
+            }
+        }
+
+        disable_raw_mode()?;
+        execute!(
+            displayer.backend_mut(),
+            LeaveAlternateScreen,
+            DisableMouseCapture,
+            SetCursorStyle::DefaultUserShape
+        )?;
+        Ok(())
+    }
+
+    pub fn buf(&self) -> Option<&Buffer> {
         self.active_buffer
             .and_then(|active_buffer| self.buffers.get(active_buffer))
+    }
+
+    pub fn handle_event(&mut self, event: Event) -> Result<()> {
+        match event {
+            Event::Key(key) => self.handle_key(key)?,
+            Event::Mouse(mouse) => self.handle_mouse(mouse)?,
+            _ => {}
+        }
+        Ok(())
     }
 
     fn buf_mut(&mut self) -> Option<&mut Buffer> {
@@ -134,46 +176,6 @@ impl Editor {
     fn save_file(&mut self) -> Result<()> {
         if let Some(buf) = self.buf_mut() {
             buf.save()?;
-        }
-        Ok(())
-    }
-
-    pub fn run(mut self) -> Result<()> {
-        enable_raw_mode()?;
-
-        let mut stdout = std::io::stdout();
-        execute!(
-            stdout,
-            EnterAlternateScreen,
-            EnableMouseCapture,
-            SetCursorStyle::SteadyBar
-        )?;
-        let backend = CrosstermBackend::new(stdout);
-        let mut terminal = Terminal::new(backend)?;
-
-        loop {
-            if self.should_quit {
-                break;
-            }
-            self.editor_loop(&mut terminal)?;
-        }
-
-        disable_raw_mode()?;
-
-        execute!(
-            terminal.backend_mut(),
-            LeaveAlternateScreen,
-            DisableMouseCapture,
-            SetCursorStyle::DefaultUserShape
-        )?;
-        Ok(())
-    }
-
-    pub fn handle_event(&mut self, event: Event) -> Result<()> {
-        match event {
-            Event::Key(key) => self.handle_key(key)?,
-            Event::Mouse(mouse) => self.handle_mouse(mouse)?,
-            _ => {}
         }
         Ok(())
     }
@@ -317,7 +319,9 @@ impl Editor {
                     }
                     "x" => {
                         self.show_tree = true;
-                        self.mode = if self.former_mode == EditorMode::TreeNav {
+                        self.mode = if self.former_mode == EditorMode::TreeNav
+                            && self.active_buffer.is_some()
+                        {
                             EditorMode::Nav
                         } else {
                             EditorMode::TreeNav
@@ -406,145 +410,5 @@ impl Editor {
             _ => {}
         }
         Ok(())
-    }
-
-    fn editor_loop(&mut self, terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
-        let is_cursor_visible = self.mode == EditorMode::Nav;
-        if is_cursor_visible {
-            terminal.show_cursor()?;
-        } else {
-            terminal.hide_cursor()?;
-        }
-
-        let size = terminal.size()?;
-        let editor_height = size.height.saturating_sub(4) as usize; // tab + borders + status
-        let scroll_y = if let Some(buf) = self.buf_mut() {
-            buf.compute_scroll(editor_height);
-            buf.scroll_y
-        } else {
-            0
-        };
-
-        terminal.draw(|f| {
-            let size = f.area();
-
-            // Layout: tab bar | editor area | status bar
-            let vertical = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Length(1), // tab bar
-                    Constraint::Min(1),    // editor
-                    Constraint::Length(1), // status
-                ])
-                .split(size);
-
-            // Tab bar
-            self.render_tab_bar(f, vertical[0]);
-
-            // Status bar
-            self.render_status(f, vertical[2]);
-
-            // Main area: optional tree | editor
-            let main_h = if self.show_tree {
-                Layout::default()
-                    .direction(Direction::Horizontal)
-                    .constraints([Constraint::Length(25), Constraint::Min(1)])
-                    .split(vertical[1])
-            } else {
-                Layout::default()
-                    .direction(Direction::Horizontal)
-                    .constraints([Constraint::Min(1)])
-                    .split(vertical[1])
-            };
-
-            if self.show_tree {
-                self.file_tree.render(f, main_h[0]);
-            }
-
-            let editor_area = if self.show_tree { main_h[1] } else { main_h[0] };
-            let visible_height = editor_area.height.saturating_sub(2) as usize;
-
-            if let Some(buf) = self.buf() {
-                let lines: Vec<Line> = (scroll_y
-                    ..buf.text.len_lines().min(scroll_y + visible_height))
-                    .map(|i| {
-                        let num = Span::styled(
-                            format!("{:>4} │ ", i),
-                            Style::default().fg(Color::DarkGray),
-                        );
-                        let content = Span::raw(buf.text.line(i).to_string());
-                        Line::from(vec![num, content])
-                    })
-                    .collect();
-
-                f.render_widget(
-                    Paragraph::new(lines).block(
-                        Block::default()
-                            .title(format!(" {} ", buf.display_name()))
-                            .borders(Borders::ALL),
-                    ),
-                    editor_area,
-                );
-
-                // Cursor
-                if is_cursor_visible {
-                    let gutter_width = 7; // "XXXX │ " = 7 chars
-                    let tree_offset = if self.show_tree { 25 } else { 0 };
-                    let cursor_x = buf.cursor_x as u16 + gutter_width + tree_offset + 1; // +1 border
-                    let cursor_y = (buf.cursor_y - buf.scroll_y) as u16 + 2; // +1 tab bar +1 border
-                    f.set_cursor_position(Position::new(cursor_x, cursor_y));
-                }
-            }
-        })?;
-
-        if event::poll(Duration::from_millis(1))? {
-            let event = event::read()?;
-            self.handle_event(event)?;
-        }
-        Ok(())
-    }
-
-    fn render_tab_bar(&self, f: &mut Frame, rect: Rect) {
-        let mut spans: Vec<Span> = Vec::new();
-        for (i, buf) in self.buffers.iter().enumerate() {
-            let is_active = self
-                .active_buffer
-                .map(|active_buffer| active_buffer == i)
-                .unwrap_or(false);
-            let style = if is_active {
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::White)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::DarkGray)
-            };
-            spans.push(Span::styled(format!(" {} ", buf.display_name()), style));
-            spans.push(Span::raw("│"));
-        }
-        f.render_widget(Paragraph::new(Line::from(spans)), rect);
-    }
-
-    fn render_status(&self, f: &mut Frame, rect: Rect) {
-        let mut components = if let Some(buf) = self.buf()
-            && let Some(active_buffer) = self.active_buffer
-        {
-            vec![
-                Span::styled(
-                    format!(" {} ", buf.display_name()),
-                    Style::default().fg(Color::Black).bg(Color::White),
-                ),
-                Span::raw(format!("  {}:{} ", buf.cursor_y + 1, buf.cursor_x + 1)),
-                Span::styled(format!(" {} ", self.mode), self.mode.get_style()),
-                Span::raw(format!(" [{}/{}] ", active_buffer + 1, self.buffers.len())),
-            ]
-        } else {
-            vec![]
-        };
-
-        if self.mode == EditorMode::Command {
-            components.push(Span::raw(format!(" :{} ", self.command_str)));
-        }
-        f.render_widget(Paragraph::new(Line::from(components)), rect);
     }
 }

@@ -130,7 +130,9 @@ impl Buffer {
     }
 
     pub fn compute_scroll(&mut self, viewport_height: usize) {
-        if viewport_height == 0 { return; }
+        if viewport_height == 0 {
+            return;
+        }
         if self.cursor_y < self.scroll_y {
             self.scroll_y = self.cursor_y;
         } else if self.cursor_y >= self.scroll_y + viewport_height {
