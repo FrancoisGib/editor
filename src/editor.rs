@@ -1,8 +1,22 @@
-use std::{io::Stdout, path::PathBuf, time::Duration};
+use std::{io::Stdout, time::Duration};
 
 use anyhow::Result;
-use crossterm::{event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind}, execute, terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode}};
-use ratatui::{Frame, Terminal, layout::{Constraint, Direction, Layout, Position, Rect}, prelude::CrosstermBackend, style::{Color, Style}, text::{Line, Span}, widgets::{Block, Borders, Paragraph}};
+use crossterm::{
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
+        MouseEvent, MouseEventKind,
+    },
+    execute,
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+};
+use ratatui::{
+    Frame, Terminal,
+    layout::{Constraint, Direction, Layout, Position, Rect},
+    prelude::CrosstermBackend,
+    style::{Color, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, Paragraph},
+};
 use ropey::Rope;
 
 use crate::mode::EditorMode;
@@ -12,7 +26,6 @@ pub struct Editor {
     pub cursor_x: usize,
     pub cursor_y: usize,
     pub filename: String,
-    _filepath: PathBuf,
     pub should_quit: bool,
     pub scroll_y: usize,
     pub mode: EditorMode,
@@ -24,16 +37,12 @@ impl Editor {
         let text = std::fs::read_to_string(filename)
             .map(|s| Rope::from_str(&s))
             .unwrap_or_else(|_| Rope::new());
-        let filepath = PathBuf::from(filename)
-            .canonicalize()
-            .unwrap_or_else(|_| PathBuf::from(filename));
 
         Ok(Self {
             text,
             cursor_x: 0,
             cursor_y: 0,
             filename: filename.into(),
-            _filepath: filepath,
             should_quit: false,
             scroll_y: 0,
             mode: EditorMode::Nav,
@@ -72,7 +81,7 @@ impl Editor {
             }
             Event::Mouse(mouse) => {
                 self.handle_mouse(mouse)?;
-            },
+            }
             _ => {}
         }
         Ok(())
@@ -84,15 +93,8 @@ impl Editor {
                 format!(" {} ", self.filename),
                 Style::default().fg(Color::Black).bg(Color::White),
             ),
-            Span::raw(format!(
-                "  {}:{} ",
-                self.cursor_y + 1,
-                self.cursor_x + 1
-            )),
-            Span::styled(
-                format!(" {} ", self.mode), 
-                self.mode.get_style(),
-            )
+            Span::raw(format!("  {}:{} ", self.cursor_y + 1, self.cursor_x + 1)),
+            Span::styled(format!(" {} ", self.mode), self.mode.get_style()),
         ];
         if self.mode == EditorMode::Command {
             components.push(Span::raw(format!(" :{} ", self.command_str)))
@@ -186,7 +188,9 @@ impl Editor {
 
     fn handle_nav_mode_key(&mut self, key: KeyEvent) -> Result<()> {
         match key.code {
-            KeyCode::Down | KeyCode::Up | KeyCode::Left | KeyCode::Right => self.handle_navigation_key(key)?,
+            KeyCode::Down | KeyCode::Up | KeyCode::Left | KeyCode::Right => {
+                self.handle_navigation_key(key)?
+            }
             KeyCode::Char('q') if key.modifiers == KeyModifiers::CONTROL => {
                 self.should_quit = true;
             }
@@ -203,7 +207,9 @@ impl Editor {
 
     fn handle_insert_mode_key(&mut self, key: KeyEvent) -> Result<()> {
         match key.code {
-            KeyCode::Down | KeyCode::Up | KeyCode::Left | KeyCode::Right => self.handle_navigation_key(key)?,
+            KeyCode::Down | KeyCode::Up | KeyCode::Left | KeyCode::Right => {
+                self.handle_navigation_key(key)?
+            }
             KeyCode::Char('q') if key.modifiers == KeyModifiers::CONTROL => {
                 self.should_quit = true;
             }
@@ -236,21 +242,19 @@ impl Editor {
             KeyCode::Backspace => {
                 self.command_str.pop();
             }
-            KeyCode::Enter => {
-                match self.command_str.as_str() {
-                    "q" => {
-                        self.should_quit = true;
-                    }
-                    "w" => {
-                        self.save_file()?;
-                    }
-                    "wq" => {
-                        self.save_file()?;
-                        self.should_quit = true;
-                    }
-                    _ => {}
+            KeyCode::Enter => match self.command_str.as_str() {
+                "q" => {
+                    self.should_quit = true;
                 }
-            }
+                "w" => {
+                    self.save_file()?;
+                }
+                "wq" => {
+                    self.save_file()?;
+                    self.should_quit = true;
+                }
+                _ => {}
+            },
             _ => {}
         }
         Ok(())
@@ -262,14 +266,14 @@ impl Editor {
                 if self.cursor_y < self.text.len_lines() - 3 {
                     self.cursor_y += 3;
                 }
-            },
+            }
             MouseEventKind::ScrollUp => {
                 if self.cursor_y >= 3 {
                     self.cursor_y -= 3;
                 } else {
                     self.cursor_y = 0;
                 }
-            },
+            }
             _ => {}
         }
         Ok(())
@@ -277,79 +281,76 @@ impl Editor {
 
     fn editor_loop(&mut self, terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
         terminal.draw(|f| {
-                let size = f.area();
-                let vertical = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints([Constraint::Min(1), Constraint::Length(1)])
-                    .split(size);
+            let size = f.area();
+            let vertical = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(1), Constraint::Length(1)])
+                .split(size);
 
-                self.render_status(f, vertical[1]);
+            self.render_status(f, vertical[1]);
 
-                let main_h = Layout::default()
-                    .direction(Direction::Horizontal)
-                    // .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
-                    .constraints([Constraint::Min(1)])
-                    .split(vertical[0]);
+            let main_h = Layout::default()
+                .direction(Direction::Horizontal)
+                // .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
+                .constraints([Constraint::Min(1)])
+                .split(vertical[0]);
 
-                let editor_h = Layout::default()
-                    .direction(Direction::Horizontal)
-                    .constraints([Constraint::Length(6), Constraint::Min(1)])
-                    .split(main_h[0]);
+            let editor_h = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Length(6), Constraint::Min(1)])
+                .split(main_h[0]);
 
-                let visible_height = editor_h[1].height as usize - 2;
+            let visible_height = editor_h[1].height as usize - 2;
 
-                if self.cursor_y >= visible_height {
-                    self.scroll_y = self.cursor_y - visible_height + 1;
-                } else {
-                    self.scroll_y = 0;
-                }
-
-                let mut line_nums: Vec<Line> = (self.scroll_y
-                    ..self
-                        .text
-                        .len_lines()
-                        .min(self.scroll_y + visible_height))
-                    .map(|i| {
-                        Line::from(Span::styled(
-                            format!("{:>4} ", i),
-                            Style::default().fg(Color::DarkGray),
-                        ))
-                    })
-                    .collect();
-
-                line_nums.insert(0, Line::from(""));
-
-                f.render_widget(Paragraph::new(line_nums), editor_h[0]);
-
-                let text: Vec<Line> = self
-                    .text
-                    .lines()
-                    .skip(self.scroll_y)
-                    .take(visible_height)
-                    .map(|l| Line::from(l.to_string()))
-                    .collect();
-
-                f.render_widget(
-                    Paragraph::new(text).block(
-                        Block::default()
-                            .title(format!(" {} ", self.filename))
-                            .borders(Borders::ALL),
-                    ),
-                    editor_h[1],
-                );
-
-                let cursor_pos = Position::new(
-                    self.cursor_x as u16 + 7,
-                    (self.cursor_y - self.scroll_y) as u16 + 1,
-                );
-
-                f.set_cursor_position(cursor_pos);
-            })?;
-
-            if event::poll(Duration::from_millis(10))? {
-                let event = event::read()?;
-                self.handle_event(event)?;
+            if self.cursor_y >= visible_height {
+                self.scroll_y = self.cursor_y - visible_height + 1;
+            } else {
+                self.scroll_y = 0;
             }
-            Ok(())
+
+            let mut line_nums: Vec<Line> = (self.scroll_y
+                ..self.text.len_lines().min(self.scroll_y + visible_height))
+                .map(|i| {
+                    Line::from(Span::styled(
+                        format!("{:>4} ", i),
+                        Style::default().fg(Color::DarkGray),
+                    ))
+                })
+                .collect();
+
+            line_nums.insert(0, Line::from(""));
+
+            f.render_widget(Paragraph::new(line_nums), editor_h[0]);
+
+            let text: Vec<Line> = self
+                .text
+                .lines()
+                .skip(self.scroll_y)
+                .take(visible_height)
+                .map(|l| Line::from(l.to_string()))
+                .collect();
+
+            f.render_widget(
+                Paragraph::new(text).block(
+                    Block::default()
+                        .title(format!(" {} ", self.filename))
+                        .borders(Borders::ALL),
+                ),
+                editor_h[1],
+            );
+
+            let cursor_pos = Position::new(
+                self.cursor_x as u16 + 7,
+                (self.cursor_y - self.scroll_y) as u16 + 1,
+            );
+
+            f.set_cursor_position(cursor_pos);
+        })?;
+
+        if event::poll(Duration::from_millis(10))? {
+            let event = event::read()?;
+            self.handle_event(event)?;
+        }
+        Ok(())
     }
 }
