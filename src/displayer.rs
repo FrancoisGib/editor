@@ -426,7 +426,6 @@ impl Displayer {
 
         let mut lines: Vec<Line> = Vec::new();
 
-        // Titre
         lines.push(Line::from(vec![
             Span::styled(
                 &item.label,
@@ -458,7 +457,6 @@ impl Displayer {
             for span in &mut line.spans {
                 span.style = span.style.bg(Color::Reset);
 
-                // optionnel : recolorer titres
                 if span.style.add_modifier.contains(Modifier::BOLD) {
                     span.style = span.style.fg(Color::Cyan);
                 }
@@ -479,69 +477,4 @@ impl Displayer {
             area,
         );
     }
-
-    // fn render_completion_doc(editor: &Editor, f: &mut Frame, area: Rect) {
-    //     let Some(ref doc) = editor.completion.doc else {
-    //         return;
-    //     };
-    //     let Some(item) = editor.completion.selected_item() else {
-    //         return;
-    //     };
-
-    //     let mut lines: Vec<Line> = Vec::new();
-
-    //     lines.push(Line::from(vec![
-    //         Span::styled(
-    //             &item.label,
-    //             Style::default()
-    //                 .fg(Color::Cyan)
-    //                 .add_modifier(Modifier::BOLD),
-    //         ),
-    //         Span::styled(
-    //             format!("  ({})", item.kind),
-    //             Style::default().fg(Color::DarkGray),
-    //         ),
-    //     ]));
-
-    //     if let Some(ref detail) = item.detail {
-    //         lines.push(Line::from(""));
-    //         lines.push(Line::from(Span::styled(
-    //             detail.clone(),
-    //             Style::default().fg(Color::Yellow),
-    //         )));
-    //     }
-
-    //     lines.push(Line::from(
-    //         "─".repeat(area.width.saturating_sub(2) as usize),
-    //     ));
-
-    //     let max_w = area.width.saturating_sub(4) as usize;
-    //     for doc_line in doc.lines() {
-    //         if max_w > 0 {
-    //             for chunk in doc_line
-    //                 .chars()
-    //                 .collect::<Vec<_>>()
-    //                 .chunks(max_w)
-    //                 .map(|c| c.iter().collect::<String>())
-    //             {
-    //                 lines.push(Line::from(Span::styled(
-    //                     chunk,
-    //                     Style::default().fg(Color::White),
-    //                 )));
-    //             }
-    //         }
-    //     }
-
-    //     let block = Block::default()
-    //         .title(" Documentation ")
-    //         .borders(Borders::ALL)
-    //         .border_style(Style::default().fg(Color::Cyan));
-
-    //     f.render_widget(
-    //         Paragraph::new(lines)
-    //             .block(block)
-    //             .wrap(ratatui::widgets::Wrap { trim: true }),
-    //         area,
-    //     );
-    // }
 }
