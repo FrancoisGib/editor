@@ -18,6 +18,5 @@ fn main() -> Result<()> {
         );
         std::process::exit(1);
     };
-
     Editor::new(filename)?.run()
 }

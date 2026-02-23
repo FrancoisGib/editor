@@ -416,6 +416,15 @@ impl Editor {
             terminal.hide_cursor()?;
         }
 
+        let size = terminal.size()?;
+        let editor_height = size.height.saturating_sub(4) as usize; // tab + borders + status
+        let scroll_y = if let Some(buf) = self.buf_mut() {
+            buf.compute_scroll(editor_height);
+            buf.scroll_y
+        } else {
+            0
+        };
+
         terminal.draw(|f| {
             let size = f.area();
 
@@ -455,17 +464,9 @@ impl Editor {
             let editor_area = if self.show_tree { main_h[1] } else { main_h[0] };
             let visible_height = editor_area.height.saturating_sub(2) as usize;
 
-            if let Some(buf) = self.buf_mut() {
-                if buf.cursor_y < buf.scroll_y {
-                    buf.scroll_y = buf.cursor_y;
-                } else if buf.cursor_y >= buf.scroll_y + visible_height {
-                    buf.scroll_y = buf.cursor_y - visible_height + 1;
-                }
-            }
-
             if let Some(buf) = self.buf() {
-                let lines: Vec<Line> = (buf.scroll_y
-                    ..buf.text.len_lines().min(buf.scroll_y + visible_height))
+                let lines: Vec<Line> = (scroll_y
+                    ..buf.text.len_lines().min(scroll_y + visible_height))
                     .map(|i| {
                         let num = Span::styled(
                             format!("{:>4} │ ", i),

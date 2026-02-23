@@ -129,6 +129,15 @@ impl Buffer {
         }
     }
 
+    pub fn compute_scroll(&mut self, viewport_height: usize) {
+        if viewport_height == 0 { return; }
+        if self.cursor_y < self.scroll_y {
+            self.scroll_y = self.cursor_y;
+        } else if self.cursor_y >= self.scroll_y + viewport_height {
+            self.scroll_y = self.cursor_y - viewport_height + 1;
+        }
+    }
+
     fn line_start(&self) -> usize {
         self.text.line_to_char(self.cursor_y)
     }
