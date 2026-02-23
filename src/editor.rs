@@ -1,7 +1,12 @@
-use std::{io::Stdout, time::Duration};
+use std::{
+    io::Stdout,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use anyhow::Result;
 use crossterm::{
+    cursor::SetCursorStyle,
     event::{
         self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
         MouseEvent, MouseEventKind,
@@ -13,51 +18,136 @@ use ratatui::{
     Frame, Terminal,
     layout::{Constraint, Direction, Layout, Position, Rect},
     prelude::CrosstermBackend,
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
 };
-use ropey::Rope;
 
-use crate::mode::EditorMode;
+use crate::{buffer::Buffer, mode::EditorMode, tree::FileTree};
 
 const CONTROL_SCROLL: usize = 10;
 const MOUSE_SCROLL: usize = 3;
 
 pub struct Editor {
-    pub text: Rope,
-    pub cursor_x: usize,
-    pub cursor_y: usize,
-    pub filename: String,
-    pub should_quit: bool,
-    pub scroll_y: usize,
-    pub mode: EditorMode,
+    buffers: Vec<Buffer>,
+    active_buffer: Option<usize>,
+    should_quit: bool,
+    mode: EditorMode,
     command_str: String,
+    file_tree: FileTree,
+    show_tree: bool,
+    former_mode: EditorMode,
 }
 
 impl Editor {
-    pub fn new(filename: &str) -> Result<Self> {
-        let text = std::fs::read_to_string(filename)
-            .map(|s| Rope::from_str(&s))
-            .unwrap_or_else(|_| Rope::new());
+    pub fn new(path: &str) -> Result<Self> {
+        let canon_path = PathBuf::from(path)
+            .canonicalize()
+            .unwrap_or_else(|_| PathBuf::from(path));
+
+        let (buffers, project_dir) = if canon_path.is_dir() {
+            (vec![], canon_path.clone())
+        } else {
+            let project_dir = canon_path
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| PathBuf::from("."));
+            (vec![Buffer::from_file(&canon_path)], project_dir)
+        };
+
+        let active_buffer = if buffers.is_empty() { None } else { Some(0) };
+
+        let mode = if canon_path.is_dir() {
+            EditorMode::TreeNav
+        } else {
+            EditorMode::Nav
+        };
 
         Ok(Self {
-            text,
-            cursor_x: 0,
-            cursor_y: 0,
-            filename: filename.into(),
+            buffers,
+            active_buffer,
             should_quit: false,
-            scroll_y: 0,
-            mode: EditorMode::Nav,
+            mode,
             command_str: String::new(),
+            file_tree: FileTree::new(&project_dir),
+            show_tree: true,
+            former_mode: mode,
         })
+    }
+
+    fn buf(&self) -> Option<&Buffer> {
+        self.active_buffer
+            .and_then(|active_buffer| self.buffers.get(active_buffer))
+    }
+
+    fn buf_mut(&mut self) -> Option<&mut Buffer> {
+        self.active_buffer
+            .and_then(|active_buffer| self.buffers.get_mut(active_buffer))
+    }
+
+    fn open_file(&mut self, path: &Path) -> Result<()> {
+        let canon = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+
+        for (i, buf) in self.buffers.iter().enumerate() {
+            if let Some(path) = &buf.filepath
+                && *path == canon
+            {
+                self.active_buffer = Some(i);
+                return Ok(());
+            }
+        }
+
+        self.buffers.push(Buffer::from_file(&canon));
+        self.active_buffer = Some(self.buffers.len() - 1);
+
+        Ok(())
+    }
+
+    fn close_buffer(&mut self, idx: usize) {
+        if self.active_buffer.is_none() {
+            return;
+        }
+        self.buffers.remove(idx);
+        if !self.buffers.is_empty() {
+            self.active_buffer = Some(self.buffers.len() - 1);
+        }
+    }
+
+    fn next_buffer(&mut self) {
+        let nb_buffers = self.buffers.len();
+        if let Some(active) = self.active_buffer
+            && nb_buffers > 1
+        {
+            self.active_buffer = Some((active + 1) % nb_buffers);
+        }
+    }
+
+    fn prev_buffer(&mut self) {
+        let nb_buffer = self.buffers.len();
+        if let Some(active) = self.active_buffer
+            && nb_buffer > 1
+        {
+            self.active_buffer = Some((active + nb_buffer - 1) % nb_buffer);
+        }
+    }
+
+    fn save_file(&mut self) -> Result<()> {
+        if let Some(buf) = self.buf_mut() {
+            buf.save()?;
+        }
+        Ok(())
     }
 
     pub fn run(mut self) -> Result<()> {
         enable_raw_mode()?;
 
         let mut stdout = std::io::stdout();
-        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+        execute!(
+            stdout,
+            EnterAlternateScreen,
+            EnableMouseCapture,
+            SetCursorStyle::SteadyBar
+        )?;
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
@@ -69,70 +159,22 @@ impl Editor {
         }
 
         disable_raw_mode()?;
+
         execute!(
             terminal.backend_mut(),
             LeaveAlternateScreen,
-            DisableMouseCapture
+            DisableMouseCapture,
+            SetCursorStyle::DefaultUserShape
         )?;
         Ok(())
     }
 
     pub fn handle_event(&mut self, event: Event) -> Result<()> {
         match event {
-            Event::Key(key) => {
-                self.handle_key(key)?;
-            }
-            Event::Mouse(mouse) => {
-                self.handle_mouse(mouse)?;
-            }
+            Event::Key(key) => self.handle_key(key)?,
+            Event::Mouse(mouse) => self.handle_mouse(mouse)?,
             _ => {}
         }
-        Ok(())
-    }
-
-    pub fn render_status(&self, f: &mut Frame, rect: Rect) {
-        let mut components = vec![
-            Span::styled(
-                format!(" {} ", self.filename),
-                Style::default().fg(Color::Black).bg(Color::White),
-            ),
-            Span::raw(format!("  {}:{} ", self.cursor_y + 1, self.cursor_x + 1)),
-            Span::styled(format!(" {} ", self.mode), self.mode.get_style()),
-        ];
-        if self.mode == EditorMode::Command {
-            components.push(Span::raw(format!(" :{} ", self.command_str)))
-        }
-
-        let status = Line::from(components);
-        f.render_widget(Paragraph::new(status), rect);
-    }
-
-    fn insert_char(&mut self, c: char) {
-        let pos = self.line_start() + self.cursor_x;
-        self.text.insert_char(pos, c);
-        self.cursor_x += 1;
-    }
-
-    fn delete_char(&mut self) {
-        if self.cursor_x > 0 {
-            let pos = self.line_start() + self.cursor_x;
-            self.text.remove(pos - 1..pos);
-            self.cursor_x -= 1;
-        } else if self.cursor_y > 0 {
-            let pos = self.text.line_to_char(self.cursor_y);
-            let prev_line = self.text.line(self.cursor_y - 1);
-            self.cursor_y -= 1;
-            self.cursor_x = prev_line.len_chars() - 1;
-            self.text.remove(pos - 1..pos);
-        }
-    }
-
-    fn line_start(&self) -> usize {
-        self.text.line_to_char(self.cursor_y)
-    }
-
-    fn save_file(&self) -> Result<()> {
-        std::fs::write(&self.filename, self.text.to_string())?;
         Ok(())
     }
 
@@ -141,62 +183,39 @@ impl Editor {
             EditorMode::Nav => self.handle_nav_mode_key(key),
             EditorMode::Command => self.handle_command_mode_key(key),
             EditorMode::Insert => self.handle_insert_mode_key(key),
+            EditorMode::TreeNav => self.handle_tree_nav_key(key),
         }
     }
 
     fn handle_navigation_key(&mut self, key: KeyEvent) -> Result<()> {
+        let buf = if let Some(buf) = self.buf_mut() {
+            buf
+        } else {
+            return Ok(());
+        };
+
         match key.code {
-            KeyCode::Down => {
-                let nb_lines = self.text.len_lines();
-                let jump = if key.modifiers == KeyModifiers::CONTROL {
-                    (nb_lines - 1 - self.cursor_y).min(CONTROL_SCROLL)
-                } else {
-                    1
-                };
-                if nb_lines > self.cursor_y + jump {
-                    self.cursor_y += jump;
-                    let new_current_line_len = self.text.line(self.cursor_y).len_chars();
-                    if new_current_line_len > 0 && self.cursor_x > new_current_line_len {
-                        self.cursor_x = new_current_line_len - 1;
-                    } else {
-                        self.cursor_x = 0;
-                    }
-                }
-            }
             KeyCode::Up => {
                 let jump = if key.modifiers == KeyModifiers::CONTROL {
-                    self.cursor_y.min(CONTROL_SCROLL)
+                    CONTROL_SCROLL
                 } else {
                     1
                 };
-                if self.cursor_y >= jump {
-                    self.cursor_y -= jump;
-                    let new_current_line_len = self.text.line(self.cursor_y).len_chars();
-                    if self.cursor_x > new_current_line_len {
-                        self.cursor_x = new_current_line_len - 1;
-                    }
-                }
+                buf.move_up(jump);
+            }
+            KeyCode::Down => {
+                let jump = if key.modifiers == KeyModifiers::CONTROL {
+                    CONTROL_SCROLL
+                } else {
+                    1
+                };
+                buf.move_down(jump);
             }
             KeyCode::Left => {
-                if self.cursor_x > 0 {
-                    self.cursor_x -= 1;
-                } else if self.cursor_y > 0 {
-                    self.cursor_y -= 1;
-                    self.cursor_x = self.text.line(self.cursor_y).len_chars() - 1;
-                }
+                buf.move_left();
             }
             KeyCode::Right => {
-                let current_line_len = self.text.line(self.cursor_y).len_chars();
-                let nb_lines = self.text.len_lines();
-                if current_line_len > 0
-                    && self.cursor_x < current_line_len
-                    && self.text.char(self.line_start() + self.cursor_x) != '\n'
-                {
-                    self.cursor_x += 1;
-                } else if self.cursor_y < nb_lines - 1 {
-                    self.cursor_y += 1;
-                    self.cursor_x = 0;
-                }
+                buf.move_right();
             }
             _ => {}
         }
@@ -205,8 +224,23 @@ impl Editor {
 
     fn handle_nav_mode_key(&mut self, key: KeyEvent) -> Result<()> {
         match key.code {
+            KeyCode::Char('x') if key.modifiers == KeyModifiers::CONTROL => {
+                self.show_tree = true;
+                self.mode = EditorMode::TreeNav;
+            }
+            KeyCode::Char('n') if key.modifiers == KeyModifiers::CONTROL => {
+                self.next_buffer();
+            }
+            KeyCode::Char('p') if key.modifiers == KeyModifiers::CONTROL => {
+                self.prev_buffer();
+            }
+            KeyCode::Char('w') if key.modifiers == KeyModifiers::CONTROL => {
+                if let Some(active_buffer) = self.active_buffer {
+                    self.close_buffer(active_buffer);
+                }
+            }
             KeyCode::Down | KeyCode::Up | KeyCode::Left | KeyCode::Right => {
-                self.handle_navigation_key(key)?
+                self.handle_navigation_key(key)?;
             }
             KeyCode::Char('q') if key.modifiers == KeyModifiers::CONTROL => {
                 self.should_quit = true;
@@ -216,6 +250,7 @@ impl Editor {
             }
             KeyCode::Char(':') => {
                 self.mode = EditorMode::Command;
+                self.former_mode = EditorMode::Nav;
             }
             _ => {}
         }
@@ -223,23 +258,26 @@ impl Editor {
     }
 
     fn handle_insert_mode_key(&mut self, key: KeyEvent) -> Result<()> {
+        let buf = if let Some(buf) = self.buf_mut() {
+            buf
+        } else {
+            return Ok(());
+        };
         match key.code {
             KeyCode::Down | KeyCode::Up | KeyCode::Left | KeyCode::Right => {
-                self.handle_navigation_key(key)?
+                self.handle_navigation_key(key)?;
             }
             KeyCode::Char('q') if key.modifiers == KeyModifiers::CONTROL => {
                 self.should_quit = true;
             }
             KeyCode::Char(c) => {
-                self.insert_char(c);
+                buf.insert_char(c);
             }
             KeyCode::Backspace => {
-                self.delete_char();
+                buf.delete_char();
             }
             KeyCode::Enter => {
-                self.insert_char('\n');
-                self.cursor_y += 1;
-                self.cursor_x = 0;
+                buf.newline();
             }
             KeyCode::Esc => {
                 self.mode = EditorMode::Nav;
@@ -252,20 +290,21 @@ impl Editor {
     fn handle_command_mode_key(&mut self, key: KeyEvent) -> Result<()> {
         match key.code {
             KeyCode::Char(':') => {
-                self.command_str = String::new();
+                self.command_str.clear();
             }
             KeyCode::Char(c) => {
                 self.command_str.push(c);
             }
             KeyCode::Esc => {
-                self.command_str = String::new();
+                self.command_str.clear();
                 self.mode = EditorMode::Nav;
             }
             KeyCode::Backspace => {
                 self.command_str.pop();
             }
             KeyCode::Enter => {
-                match self.command_str.as_str() {
+                let cmd = self.command_str.clone();
+                match cmd.as_str() {
                     "q" => {
                         self.should_quit = true;
                     }
@@ -276,16 +315,74 @@ impl Editor {
                         self.save_file()?;
                         self.should_quit = true;
                     }
+                    "x" => {
+                        self.show_tree = true;
+                        self.mode = if self.former_mode == EditorMode::TreeNav {
+                            EditorMode::Nav
+                        } else {
+                            EditorMode::TreeNav
+                        };
+                        self.former_mode = self.mode;
+                        self.command_str.clear();
+                        return Ok(());
+                    }
+                    "bd" | "close" => {
+                        if let Some(i) = self.active_buffer
+                            && let Some(buf) = self.buf_mut()
+                        {
+                            buf.save()?;
+                            self.close_buffer(i);
+                        }
+                    }
+                    "bn" | "next" => {
+                        self.next_buffer();
+                    }
+                    "bp" | "prev" => {
+                        self.prev_buffer();
+                    }
                     str => {
                         if let Ok(line) = str.parse::<usize>()
-                            && line < self.text.len_lines()
+                            && let Some(buf) = self.buf_mut()
                         {
-                            self.cursor_y = line;
+                            buf.jump_to_line(line);
                         }
                     }
                 }
-                self.command_str = String::new();
+                self.command_str.clear();
+                if self.mode != EditorMode::TreeNav {
+                    self.mode = EditorMode::Nav;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn handle_tree_nav_key(&mut self, key: KeyEvent) -> Result<()> {
+        match key.code {
+            KeyCode::Up => self.file_tree.move_up(),
+            KeyCode::Down => self.file_tree.move_down(),
+            KeyCode::Left => self.file_tree.collapse_selected(),
+            KeyCode::Right => self.file_tree.expand_selected(),
+            KeyCode::Enter => {
+                if let Some(path) = self.file_tree.enter() {
+                    self.open_file(&path)?;
+                    self.mode = EditorMode::Nav;
+                }
+            }
+            KeyCode::Esc => {
                 self.mode = EditorMode::Nav;
+            }
+            KeyCode::Char(':') => {
+                self.mode = EditorMode::Command;
+                self.former_mode = EditorMode::TreeNav;
+            }
+            KeyCode::Char('b') if key.modifiers == KeyModifiers::CONTROL => {
+                self.show_tree = false;
+                self.mode = EditorMode::Nav;
+            }
+            KeyCode::Char('q') if key.modifiers == KeyModifiers::CONTROL => {
+                self.should_quit = true;
             }
             _ => {}
         }
@@ -293,21 +390,19 @@ impl Editor {
     }
 
     fn handle_mouse(&mut self, mouse_event: MouseEvent) -> Result<()> {
+        let buf = if let Some(buf) = self.buf_mut() {
+            buf
+        } else {
+            return Ok(());
+        };
+
         match mouse_event.kind {
             MouseEventKind::ScrollDown => {
-                let nb_lines = self.text.len_lines();
-                if self.cursor_y + MOUSE_SCROLL < nb_lines {
-                    self.cursor_y += MOUSE_SCROLL;
-                } else {
-                    self.cursor_y = nb_lines - 1;
-                }
+                let nb = buf.text.len_lines();
+                buf.cursor_y = (buf.cursor_y + MOUSE_SCROLL).min(nb.saturating_sub(1));
             }
             MouseEventKind::ScrollUp => {
-                if self.cursor_y >= MOUSE_SCROLL {
-                    self.cursor_y -= MOUSE_SCROLL;
-                } else {
-                    self.cursor_y = 0;
-                }
+                buf.cursor_y = buf.cursor_y.saturating_sub(MOUSE_SCROLL);
             }
             _ => {}
         }
@@ -315,71 +410,91 @@ impl Editor {
     }
 
     fn editor_loop(&mut self, terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
+        let is_cursor_visible = self.mode == EditorMode::Nav;
+        if is_cursor_visible {
+            terminal.show_cursor()?;
+        } else {
+            terminal.hide_cursor()?;
+        }
+
         terminal.draw(|f| {
             let size = f.area();
+
+            // Layout: tab bar | editor area | status bar
             let vertical = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Min(1), Constraint::Length(1)])
+                .constraints([
+                    Constraint::Length(1), // tab bar
+                    Constraint::Min(1),    // editor
+                    Constraint::Length(1), // status
+                ])
                 .split(size);
 
-            self.render_status(f, vertical[1]);
+            // Tab bar
+            self.render_tab_bar(f, vertical[0]);
 
-            let main_h = Layout::default()
-                .direction(Direction::Horizontal)
-                // .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
-                .constraints([Constraint::Min(1)])
-                .split(vertical[0]);
+            // Status bar
+            self.render_status(f, vertical[2]);
 
-            let editor_h = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Length(6), Constraint::Min(1)])
-                .split(main_h[0]);
+            // Main area: optional tree | editor
+            let main_h = if self.show_tree {
+                Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Length(25), Constraint::Min(1)])
+                    .split(vertical[1])
+            } else {
+                Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Min(1)])
+                    .split(vertical[1])
+            };
 
-            let visible_height = editor_h[1].height as usize - 2;
-
-            if self.cursor_y < self.scroll_y {
-                self.scroll_y = self.cursor_y;
-            } else if self.cursor_y >= self.scroll_y + visible_height {
-                self.scroll_y = self.cursor_y - visible_height + 1;
+            if self.show_tree {
+                self.file_tree.render(f, main_h[0]);
             }
 
-            let mut line_nums: Vec<Line> = (self.scroll_y
-                ..self.text.len_lines().min(self.scroll_y + visible_height))
-                .map(|i| {
-                    Line::from(Span::styled(
-                        format!("{:>4} ", i),
-                        Style::default().fg(Color::DarkGray),
-                    ))
-                })
-                .collect();
+            let editor_area = if self.show_tree { main_h[1] } else { main_h[0] };
+            let visible_height = editor_area.height.saturating_sub(2) as usize;
 
-            line_nums.insert(0, Line::from(""));
+            if let Some(buf) = self.buf_mut() {
+                if buf.cursor_y < buf.scroll_y {
+                    buf.scroll_y = buf.cursor_y;
+                } else if buf.cursor_y >= buf.scroll_y + visible_height {
+                    buf.scroll_y = buf.cursor_y - visible_height + 1;
+                }
+            }
 
-            f.render_widget(Paragraph::new(line_nums), editor_h[0]);
+            if let Some(buf) = self.buf() {
+                let lines: Vec<Line> = (buf.scroll_y
+                    ..buf.text.len_lines().min(buf.scroll_y + visible_height))
+                    .map(|i| {
+                        let num = Span::styled(
+                            format!("{:>4} │ ", i),
+                            Style::default().fg(Color::DarkGray),
+                        );
+                        let content = Span::raw(buf.text.line(i).to_string());
+                        Line::from(vec![num, content])
+                    })
+                    .collect();
 
-            let text: Vec<Line> = self
-                .text
-                .lines()
-                .skip(self.scroll_y)
-                .take(visible_height)
-                .map(|l| Line::from(l.to_string()))
-                .collect();
+                f.render_widget(
+                    Paragraph::new(lines).block(
+                        Block::default()
+                            .title(format!(" {} ", buf.display_name()))
+                            .borders(Borders::ALL),
+                    ),
+                    editor_area,
+                );
 
-            f.render_widget(
-                Paragraph::new(text).block(
-                    Block::default()
-                        .title(format!(" {} ", self.filename))
-                        .borders(Borders::ALL),
-                ),
-                editor_h[1],
-            );
-
-            let cursor_pos = Position::new(
-                self.cursor_x as u16 + 7,
-                (self.cursor_y - self.scroll_y) as u16 + 1,
-            );
-
-            f.set_cursor_position(cursor_pos);
+                // Cursor
+                if is_cursor_visible {
+                    let gutter_width = 7; // "XXXX │ " = 7 chars
+                    let tree_offset = if self.show_tree { 25 } else { 0 };
+                    let cursor_x = buf.cursor_x as u16 + gutter_width + tree_offset + 1; // +1 border
+                    let cursor_y = (buf.cursor_y - buf.scroll_y) as u16 + 2; // +1 tab bar +1 border
+                    f.set_cursor_position(Position::new(cursor_x, cursor_y));
+                }
+            }
         })?;
 
         if event::poll(Duration::from_millis(1))? {
@@ -387,5 +502,49 @@ impl Editor {
             self.handle_event(event)?;
         }
         Ok(())
+    }
+
+    fn render_tab_bar(&self, f: &mut Frame, rect: Rect) {
+        let mut spans: Vec<Span> = Vec::new();
+        for (i, buf) in self.buffers.iter().enumerate() {
+            let is_active = self
+                .active_buffer
+                .map(|active_buffer| active_buffer == i)
+                .unwrap_or(false);
+            let style = if is_active {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::White)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+            spans.push(Span::styled(format!(" {} ", buf.display_name()), style));
+            spans.push(Span::raw("│"));
+        }
+        f.render_widget(Paragraph::new(Line::from(spans)), rect);
+    }
+
+    fn render_status(&self, f: &mut Frame, rect: Rect) {
+        let mut components = if let Some(buf) = self.buf()
+            && let Some(active_buffer) = self.active_buffer
+        {
+            vec![
+                Span::styled(
+                    format!(" {} ", buf.display_name()),
+                    Style::default().fg(Color::Black).bg(Color::White),
+                ),
+                Span::raw(format!("  {}:{} ", buf.cursor_y + 1, buf.cursor_x + 1)),
+                Span::styled(format!(" {} ", self.mode), self.mode.get_style()),
+                Span::raw(format!(" [{}/{}] ", active_buffer + 1, self.buffers.len())),
+            ]
+        } else {
+            vec![]
+        };
+
+        if self.mode == EditorMode::Command {
+            components.push(Span::raw(format!(" :{} ", self.command_str)));
+        }
+        f.render_widget(Paragraph::new(Line::from(components)), rect);
     }
 }

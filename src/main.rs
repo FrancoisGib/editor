@@ -2,8 +2,10 @@ use anyhow::Result;
 
 use crate::editor::Editor;
 
+mod buffer;
 mod editor;
 mod mode;
+mod tree;
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();

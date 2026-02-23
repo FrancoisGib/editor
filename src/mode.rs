@@ -7,6 +7,7 @@ pub enum EditorMode {
     Nav,
     Command,
     Insert,
+    TreeNav,
 }
 
 impl EditorMode {
@@ -15,6 +16,7 @@ impl EditorMode {
             EditorMode::Nav => Style::default().fg(Color::Cyan),
             EditorMode::Command => Style::default().fg(Color::Red),
             EditorMode::Insert => Style::default().fg(Color::Yellow),
+            EditorMode::TreeNav => Style::default().fg(Color::Black).bg(Color::Cyan),
         }
     }
 }
@@ -25,6 +27,7 @@ impl Display for EditorMode {
             EditorMode::Nav => "NAV",
             EditorMode::Command => "COMMAND",
             EditorMode::Insert => "INSERT",
+            EditorMode::TreeNav => "TREE",
         })
     }
 }
