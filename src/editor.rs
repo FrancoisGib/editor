@@ -297,7 +297,7 @@ impl Editor {
             }
             KeyCode::Esc => {
                 self.command_str.clear();
-                self.mode = EditorMode::Nav;
+                self.mode = self.former_mode;
             }
             KeyCode::Backspace => {
                 self.command_str.pop();
@@ -397,12 +397,11 @@ impl Editor {
         };
 
         match mouse_event.kind {
-            MouseEventKind::ScrollDown => {
-                let nb = buf.text.len_lines();
-                buf.cursor_y = (buf.cursor_y + MOUSE_SCROLL).min(nb.saturating_sub(1));
-            }
             MouseEventKind::ScrollUp => {
-                buf.cursor_y = buf.cursor_y.saturating_sub(MOUSE_SCROLL);
+                buf.move_up(MOUSE_SCROLL);
+            }
+            MouseEventKind::ScrollDown => {
+                buf.move_down(MOUSE_SCROLL);
             }
             _ => {}
         }
