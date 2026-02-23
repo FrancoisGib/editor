@@ -96,7 +96,7 @@ impl Buffer {
         }
     }
 
-    fn on_text_changed(&mut self) {
+    pub fn on_text_changed(&mut self) {
         self.modified = true;
         self.highlighter.update(&self.text.to_string());
     }

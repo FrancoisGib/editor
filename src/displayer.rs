@@ -29,7 +29,9 @@ impl Displayer {
     }
 
     pub fn draw(&mut self, editor: &Editor) -> anyhow::Result<()> {
-        let is_cursor_visible = editor.mode == EditorMode::Nav || editor.mode == EditorMode::Insert;
+        let is_cursor_visible = editor.mode == EditorMode::Nav
+            || editor.mode == EditorMode::Insert
+            || editor.mode == EditorMode::Autocomplete;
         if is_cursor_visible {
             self.terminal.show_cursor()?;
         } else {
@@ -78,14 +80,19 @@ impl Displayer {
             } else {
                 main_h[0]
             };
-            let diag_area = if editor.show_tree {
+            let side_panel = if editor.show_tree {
                 main_h[2]
             } else {
                 main_h[1]
             };
 
             Self::render_editor(editor, &diag, f, editor_area, is_cursor_visible);
-            Self::render_diagnostics(&diag, f, diag_area);
+
+            if editor.completion.is_active() && editor.completion.doc.is_some() {
+                Self::render_completion_doc(editor, f, side_panel);
+            } else {
+                Self::render_diagnostics(&diag, f, side_panel);
+            }
         })?;
 
         Ok(())
@@ -154,6 +161,8 @@ impl Displayer {
             let cursor_y = (buf.cursor_y - buf.scroll_y) as u16 + area.y + 1;
             f.set_cursor_position(Position::new(cursor_x, cursor_y));
         }
+
+        Self::render_completion(editor, f, area);
     }
 
     fn render_tab_bar(editor: &Editor, f: &mut Frame, rect: Rect) {
@@ -271,8 +280,8 @@ impl Displayer {
                     DiagnosticLevel::Warning => ("▲", Color::Yellow),
                 };
                 let loc = match (d.line, d.column) {
-                    (Some(l), Some(c)) => format!(" L{}:{}", l + 1, c),
-                    (Some(l), None) => format!(" L{}", l + 1),
+                    (Some(l), Some(c)) => format!(" L{}:{}", l, c),
+                    (Some(l), None) => format!(" L{}", l),
                     _ => String::new(),
                 };
                 lines.push(Line::from(vec![
@@ -311,4 +320,228 @@ impl Displayer {
             area,
         );
     }
+
+    fn render_completion(editor: &Editor, f: &mut Frame, editor_area: Rect) {
+        use ratatui::widgets::Clear;
+
+        if !editor.completion.is_active() {
+            return;
+        }
+        let Some(buf) = editor.buf() else { return };
+
+        let max_visible = 10usize;
+        let count = editor.completion.items.len().min(max_visible);
+
+        let gutter: u16 = 7;
+        let cursor_screen_y = (buf.cursor_y.saturating_sub(buf.scroll_y)) as u16;
+        let popup_x = (buf.cursor_x as u16 + gutter + editor_area.x + 1)
+            .min(editor_area.right().saturating_sub(40));
+        let popup_y = cursor_screen_y + editor_area.y + 2;
+
+        let max_label = editor
+            .completion
+            .items
+            .iter()
+            .take(max_visible)
+            .map(|c| c.label.len() + c.kind.len() + 4)
+            .max()
+            .unwrap_or(20)
+            .clamp(20, 40);
+
+        let popup_w = (max_label + 2) as u16;
+        let popup_h = count as u16 + 2;
+
+        let x = popup_x.min(editor_area.right().saturating_sub(popup_w));
+        let y = if popup_y + popup_h > editor_area.bottom() {
+            cursor_screen_y + editor_area.y - popup_h
+        } else {
+            popup_y
+        };
+
+        let area = Rect::new(x, y, popup_w, popup_h);
+
+        let scroll_start = editor
+            .completion
+            .selected
+            .saturating_sub(max_visible - 1)
+            .max(if editor.completion.selected >= max_visible {
+                editor.completion.selected - max_visible + 1
+            } else {
+                0
+            });
+
+        let items: Vec<Line> = editor
+            .completion
+            .items
+            .iter()
+            .skip(scroll_start)
+            .take(max_visible)
+            .enumerate()
+            .map(|(i, item)| {
+                let real_idx = scroll_start + i;
+                let is_sel = real_idx == editor.completion.selected;
+                let kind = Span::styled(
+                    format!(" {:>5} ", item.kind),
+                    Style::default().fg(Color::DarkGray),
+                );
+                let label = Span::styled(
+                    item.label.clone(),
+                    if is_sel {
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::White)
+                    },
+                );
+                let mut spans = vec![kind, Span::raw(" "), label];
+                if is_sel && let Some(ref detail) = item.detail {
+                    let short: String = detail.chars().take(20).collect();
+                    spans.push(Span::styled(
+                        format!(" {}", short),
+                        Style::default().fg(Color::DarkGray),
+                    ));
+                }
+                Line::from(spans)
+            })
+            .collect();
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .style(Style::default().bg(Color::Rgb(30, 30, 30)));
+
+        f.render_widget(Clear, area);
+        f.render_widget(Paragraph::new(items).block(block), area);
+    }
+
+    fn render_completion_doc(editor: &Editor, f: &mut Frame, area: Rect) {
+        let Some(ref doc) = editor.completion.doc else {
+            return;
+        };
+        let Some(item) = editor.completion.selected_item() else {
+            return;
+        };
+
+        let mut lines: Vec<Line> = Vec::new();
+
+        // Titre
+        lines.push(Line::from(vec![
+            Span::styled(
+                &item.label,
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("  ({})", item.kind),
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]));
+
+        if let Some(ref detail) = item.detail {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                detail.clone(),
+                Style::default().fg(Color::Yellow),
+            )));
+        }
+
+        lines.push(Line::from(
+            "─".repeat(area.width.saturating_sub(2) as usize),
+        ));
+
+        let mut md_text = tui_markdown::from_str(doc);
+
+        for line in &mut md_text.lines {
+            for span in &mut line.spans {
+                span.style = span.style.bg(Color::Reset);
+
+                // optionnel : recolorer titres
+                if span.style.add_modifier.contains(Modifier::BOLD) {
+                    span.style = span.style.fg(Color::Cyan);
+                }
+            }
+        }
+
+        lines.extend(md_text.lines);
+
+        let block = Block::default()
+            .title(" Documentation ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan));
+
+        f.render_widget(
+            Paragraph::new(lines)
+                .block(block)
+                .wrap(ratatui::widgets::Wrap { trim: true }),
+            area,
+        );
+    }
+
+    // fn render_completion_doc(editor: &Editor, f: &mut Frame, area: Rect) {
+    //     let Some(ref doc) = editor.completion.doc else {
+    //         return;
+    //     };
+    //     let Some(item) = editor.completion.selected_item() else {
+    //         return;
+    //     };
+
+    //     let mut lines: Vec<Line> = Vec::new();
+
+    //     lines.push(Line::from(vec![
+    //         Span::styled(
+    //             &item.label,
+    //             Style::default()
+    //                 .fg(Color::Cyan)
+    //                 .add_modifier(Modifier::BOLD),
+    //         ),
+    //         Span::styled(
+    //             format!("  ({})", item.kind),
+    //             Style::default().fg(Color::DarkGray),
+    //         ),
+    //     ]));
+
+    //     if let Some(ref detail) = item.detail {
+    //         lines.push(Line::from(""));
+    //         lines.push(Line::from(Span::styled(
+    //             detail.clone(),
+    //             Style::default().fg(Color::Yellow),
+    //         )));
+    //     }
+
+    //     lines.push(Line::from(
+    //         "─".repeat(area.width.saturating_sub(2) as usize),
+    //     ));
+
+    //     let max_w = area.width.saturating_sub(4) as usize;
+    //     for doc_line in doc.lines() {
+    //         if max_w > 0 {
+    //             for chunk in doc_line
+    //                 .chars()
+    //                 .collect::<Vec<_>>()
+    //                 .chunks(max_w)
+    //                 .map(|c| c.iter().collect::<String>())
+    //             {
+    //                 lines.push(Line::from(Span::styled(
+    //                     chunk,
+    //                     Style::default().fg(Color::White),
+    //                 )));
+    //             }
+    //         }
+    //     }
+
+    //     let block = Block::default()
+    //         .title(" Documentation ")
+    //         .borders(Borders::ALL)
+    //         .border_style(Style::default().fg(Color::Cyan));
+
+    //     f.render_widget(
+    //         Paragraph::new(lines)
+    //             .block(block)
+    //             .wrap(ratatui::widgets::Wrap { trim: true }),
+    //         area,
+    //     );
+    // }
 }

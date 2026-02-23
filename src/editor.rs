@@ -15,8 +15,10 @@ use ratatui::{Terminal, prelude::CrosstermBackend};
 
 use crate::{
     buffer::Buffer,
+    completion::{CompletionState, parse_completions, parse_resolve_doc},
     diagnostic::{DiagnosticState, spawn_cargo_check},
     displayer::Displayer,
+    lsp::LspClient,
     mode::EditorMode,
     tree::FileTree,
 };
@@ -29,6 +31,8 @@ pub struct Editor {
     pub file_tree: FileTree,
     pub show_tree: bool,
     pub diag_state: Arc<Mutex<DiagnosticState>>,
+    pub lsp: Option<LspClient>,
+    pub completion: CompletionState,
 }
 
 impl Editor {
@@ -57,6 +61,18 @@ impl Editor {
 
         let diag_state = Arc::new(Mutex::new(DiagnosticState::new()));
 
+        let mut lsp = LspClient::start(&canon_path, &project_dir);
+        if let Some(ref mut client) = lsp {
+            client.initialize();
+            if !canon_path.is_dir() {
+                let text = buffers
+                    .first()
+                    .map(|b| b.text.to_string())
+                    .unwrap_or_default();
+                client.did_open(&format!("file://{}", canon_path.display()), &text);
+            }
+        }
+
         if !canon_path.is_dir() {
             spawn_cargo_check(&diag_state, &canon_path);
         }
@@ -69,6 +85,8 @@ impl Editor {
             file_tree: FileTree::new(&project_dir),
             show_tree: true,
             diag_state,
+            lsp,
+            completion: CompletionState::new(),
         })
     }
 
@@ -89,6 +107,8 @@ impl Editor {
             if self.should_quit {
                 break;
             }
+
+            self.poll_completion();
 
             let vh = displayer.viewport_height();
             if let Some(buf) = self.buf_mut() {
@@ -168,6 +188,7 @@ impl Editor {
         self.buffers.push(Buffer::from_file(&canon));
         self.active_buffer = Some(self.buffers.len() - 1);
 
+        self.notify_lsp_open(&canon);
         spawn_cargo_check(&self.diag_state, &canon);
 
         Ok(())
@@ -214,17 +235,143 @@ impl Editor {
         if let Some(buf) = self.buf_mut() {
             buf.insert_char(c);
         }
+        self.notify_lsp_change();
     }
 
     pub fn delete_char(&mut self) {
         if let Some(buf) = self.buf_mut() {
             buf.delete_char();
         }
+        self.notify_lsp_change();
     }
 
     pub fn insert_newline(&mut self) {
         if let Some(buf) = self.buf_mut() {
             buf.newline();
+        }
+        self.notify_lsp_change();
+    }
+
+    pub fn notify_lsp_change(&mut self) {
+        if let Some(ref mut client) = self.lsp
+            && let Some(buf) = self.buffers.get(self.active_buffer.unwrap_or(0))
+        {
+            client.did_change(&buf.text.to_string());
+        }
+    }
+
+    pub fn notify_lsp_open(&mut self, path: &Path) {
+        let mut lsp = self.lsp.take();
+        if let Some(client) = &mut lsp
+            && let Some(buf) = self.buf()
+        {
+            let uri = format!("file://{}", path.display());
+            client.did_open(&uri, &buf.text.to_string());
+        }
+        self.lsp = lsp;
+    }
+
+    pub fn trigger_completion(&mut self) {
+        let mut lsp = self.lsp.take();
+        if let Some(client) = &mut lsp
+            && let Some(buf) = self.buf()
+        {
+            let id = client.request_completion(buf.cursor_y, buf.cursor_x);
+            self.completion.request_id = Some(id);
+            self.completion.prefix = self.get_word_before_cursor();
+        }
+        self.lsp = lsp;
+    }
+
+    pub fn request_resolve(&mut self) {
+        if let Some(item) = self.completion.selected_item()
+            && let Some(ref mut client) = self.lsp
+        {
+            let id = client.resolve_completion(&item.raw);
+            self.completion.resolve_id = Some((id, self.completion.selected));
+            self.completion.doc = None;
+        }
+    }
+
+    pub fn get_word_before_cursor(&self) -> String {
+        let Some(buf) = self.buf() else {
+            return String::new();
+        };
+        if buf.cursor_y >= buf.text.len_lines() {
+            return String::new();
+        }
+        let line: String = buf
+            .text
+            .line(buf.cursor_y)
+            .chars()
+            .take(buf.cursor_x)
+            .collect();
+        line.chars()
+            .rev()
+            .take_while(|c| c.is_alphanumeric() || *c == '_')
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect()
+    }
+
+    pub fn apply_completion(&mut self) {
+        let Some(item) = self.completion.selected_item().cloned() else {
+            return;
+        };
+
+        let prefix_len = self.completion.prefix.len();
+
+        if let Some(buf) = self.buf_mut() {
+            for _ in 0..prefix_len {
+                if buf.cursor_x > 0 {
+                    let pos = buf.text.line_to_char(buf.cursor_y) + buf.cursor_x;
+                    buf.text.remove(pos - 1..pos);
+                    buf.cursor_x -= 1;
+                }
+            }
+            let pos = buf.text.line_to_char(buf.cursor_y) + buf.cursor_x;
+            buf.text.insert(pos, &item.insert_text);
+            buf.cursor_x += item.insert_text.len();
+            buf.on_text_changed();
+        }
+
+        self.completion.clear();
+        self.notify_lsp_change();
+    }
+
+    pub fn poll_completion(&mut self) {
+        if let Some((resolve_id, idx)) = self.completion.resolve_id
+            && let Some(ref client) = self.lsp
+            && let Some(resp) = client.get_response(resolve_id)
+        {
+            self.completion.resolve_id = None;
+            if idx == self.completion.selected {
+                self.completion.doc = parse_resolve_doc(&resp);
+            }
+        }
+
+        let Some(req_id) = self.completion.request_id else {
+            return;
+        };
+        let resp = if let Some(ref client) = self.lsp {
+            client.get_response(req_id)
+        } else {
+            None
+        };
+
+        if let Some(resp) = resp {
+            self.completion.request_id = None;
+            let items = parse_completions(&resp);
+            if items.is_empty() {
+                self.completion.clear();
+            } else {
+                self.completion.items = items;
+                self.completion.selected = 0;
+                self.completion.doc = None;
+                self.mode = EditorMode::Autocomplete;
+                self.request_resolve();
+            }
         }
     }
 

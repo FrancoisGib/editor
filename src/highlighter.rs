@@ -11,7 +11,104 @@ struct Theme {
 }
 
 impl Theme {
-    fn monokai() -> Self {
+    fn vscode_dark_modern() -> Self {
+        let mut styles = HashMap::new();
+
+        // VS Code Dark Modern palette
+        let keyword = Color::Rgb(86, 156, 214); // #569CD6
+        let control = Color::Rgb(197, 134, 192); // #C586C0
+        let function = Color::Rgb(220, 220, 170); // #DCDCAA
+        let type_color = Color::Rgb(78, 201, 176); // #4EC9B0
+        let string = Color::Rgb(206, 145, 120); // #CE9178
+        let number = Color::Rgb(181, 206, 168); // #B5CEA8
+        let comment = Color::Rgb(106, 153, 85); // #6A9955
+        let variable = Color::Rgb(156, 220, 254); // #9CDCFE
+        let constant = Color::Rgb(100, 150, 224); // #4FC1FF
+        let attribute = Color::Rgb(156, 220, 254); // #9CDCFE
+        let macro_c = Color::Rgb(220, 220, 170); // #DCDCAA
+        let lifetime = Color::Rgb(86, 156, 214); // #569CD6
+        let operator = Color::Rgb(212, 212, 212); // #D4D4D4
+        let default = Color::Rgb(212, 212, 212); // #D4D4D4
+
+        // let s  = |fg: Color| Style::default().fg(fg);
+        let s = |fg: Color| Style::default().fg(fg).add_modifier(Modifier::BOLD);
+
+        for kw in [
+            "fn", "let", "use", "mod", "pub", "struct", "enum", "impl", "trait", "where", "as",
+            "in", "ref", "const", "static", "type", "unsafe", "async", "await", "move", "dyn",
+            "crate", "super", "extern",
+        ] {
+            styles.insert(kw, s(keyword));
+        }
+
+        for kw in [
+            "if", "else", "match", "for", "while", "loop", "return", "break", "continue", "mut",
+        ] {
+            styles.insert(kw, s(control));
+        }
+
+        // Tree-sitter node types
+        styles.insert("keyword", s(keyword));
+
+        // Fonctions
+        styles.insert("function", s(function));
+        styles.insert("function.method", s(function));
+
+        // Types
+        styles.insert("type", s(type_color));
+        styles.insert("type_identifier", s(type_color));
+        styles.insert("primitive_type", s(type_color));
+
+        // Strings
+        styles.insert("string_literal", s(string));
+        styles.insert("string_content", s(string));
+        styles.insert("char_literal", s(string));
+        styles.insert("raw_string_literal", s(string));
+
+        // Numbers
+        styles.insert("integer_literal", s(number));
+        styles.insert("float_literal", s(number));
+
+        // Booleans
+        styles.insert("boolean_literal", s(constant));
+        styles.insert("true", s(constant));
+        styles.insert("false", s(constant));
+
+        // Comments
+        styles.insert("line_comment", s(comment));
+        styles.insert("block_comment", s(comment));
+
+        // Identifiers
+        styles.insert("identifier", s(variable));
+        styles.insert("field_identifier", s(variable));
+
+        // Attributes
+        styles.insert("attribute_item", s(attribute));
+        styles.insert("inner_attribute_item", s(attribute));
+
+        // Macros
+        styles.insert("macro_invocation", s(macro_c));
+
+        // Lifetimes
+        styles.insert("lifetime", s(lifetime));
+
+        // self
+        styles.insert("self", s(keyword));
+        styles.insert("mutable_specifier", s(control));
+
+        // operators
+        styles.insert("operator", s(operator));
+        styles.insert("::", s(operator));
+        styles.insert("->", s(operator));
+        styles.insert("=>", s(operator));
+
+        Self {
+            styles,
+            default: Style::default().fg(default),
+        }
+    }
+
+    fn _monokai() -> Self {
         let mut styles = HashMap::new();
         let s = |fg: Color| Style::default().fg(fg);
         let sb = |fg: Color| Style::default().fg(fg).add_modifier(Modifier::BOLD);
@@ -77,7 +174,7 @@ impl Highlighter {
         Self {
             parser,
             tree: None,
-            theme: Theme::monokai(),
+            theme: Theme::vscode_dark_modern(),
             source_cache: String::new(),
         }
     }

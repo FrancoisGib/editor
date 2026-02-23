@@ -152,7 +152,7 @@ fn run_cargo_check(state: Arc<Mutex<DiagnosticState>>, file: PathBuf) {
     let project_dir = find_project_dir(&file);
 
     let mut cmd = Command::new("cargo");
-    cmd.args(["check", "--message-format=json", "--color=never"]);
+    cmd.args(["clippy", "--message-format=json", "--color=never"]);
     if let Some(dir) = &project_dir {
         cmd.current_dir(dir);
     }
