@@ -188,7 +188,10 @@ impl Editor {
             KeyCode::Right => {
                 let current_line_len = self.text.line(self.cursor_y).len_chars();
                 let nb_lines = self.text.len_lines();
-                if self.cursor_y < nb_lines - 1 && self.cursor_x < current_line_len - 1 {
+                if current_line_len > 0
+                    && self.cursor_x < current_line_len
+                    && self.text.char(self.line_start() + self.cursor_x) != '\n'
+                {
                     self.cursor_x += 1;
                 } else if self.cursor_y < nb_lines - 1 {
                     self.cursor_y += 1;
@@ -233,6 +236,11 @@ impl Editor {
             KeyCode::Backspace => {
                 self.delete_char();
             }
+            KeyCode::Enter => {
+                self.insert_char('\n');
+                self.cursor_y += 1;
+                self.cursor_x = 0;
+            }
             KeyCode::Esc => {
                 self.mode = EditorMode::Nav;
             }
@@ -256,27 +264,29 @@ impl Editor {
             KeyCode::Backspace => {
                 self.command_str.pop();
             }
-            KeyCode::Enter => match self.command_str.as_str() {
-                "q" => {
-                    self.should_quit = true;
-                }
-                "w" => {
-                    self.save_file()?;
-                }
-                "wq" => {
-                    self.save_file()?;
-                    self.should_quit = true;
-                }
-
-                str => {
-                    if let Ok(line) = str.parse::<usize>()
-                        && line < self.text.len_lines()
-                    {
-                        self.cursor_y = line;
-                        self.mode = EditorMode::Nav;
+            KeyCode::Enter => {
+                match self.command_str.as_str() {
+                    "q" => {
+                        self.should_quit = true;
+                    }
+                    "w" => {
+                        self.save_file()?;
+                    }
+                    "wq" => {
+                        self.save_file()?;
+                        self.should_quit = true;
+                    }
+                    str => {
+                        if let Ok(line) = str.parse::<usize>()
+                            && line < self.text.len_lines()
+                        {
+                            self.cursor_y = line;
+                        }
                     }
                 }
-            },
+                self.command_str = String::new();
+                self.mode = EditorMode::Nav;
+            }
             _ => {}
         }
         Ok(())
@@ -286,7 +296,7 @@ impl Editor {
         match mouse_event.kind {
             MouseEventKind::ScrollDown => {
                 let nb_lines = self.text.len_lines();
-                if self.cursor_y < nb_lines - MOUSE_SCROLL {
+                if self.cursor_y + MOUSE_SCROLL < nb_lines {
                     self.cursor_y += MOUSE_SCROLL;
                 } else {
                     self.cursor_y = nb_lines - 1;
