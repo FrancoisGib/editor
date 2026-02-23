@@ -144,8 +144,14 @@ impl Editor {
     fn handle_navigation_key(&mut self, key: KeyEvent) -> Result<()> {
         match key.code {
             KeyCode::Down => {
-                if self.text.len_lines() - 1 > self.cursor_y {
-                    self.cursor_y += 1;
+                let nb_lines = self.text.len_lines();
+                let jump = if key.modifiers == KeyModifiers::CONTROL {
+                    (nb_lines - 1 - self.cursor_y).min(10)
+                } else {
+                    1
+                };
+                if nb_lines > self.cursor_y + jump {
+                    self.cursor_y += jump;
                     let new_current_line_len = self.text.line(self.cursor_y).len_chars();
                     if new_current_line_len > 0 && self.cursor_x > new_current_line_len {
                         self.cursor_x = new_current_line_len - 1;
@@ -155,8 +161,13 @@ impl Editor {
                 }
             }
             KeyCode::Up => {
-                if self.cursor_y > 0 {
-                    self.cursor_y -= 1;
+                let jump = if key.modifiers == KeyModifiers::CONTROL {
+                    self.cursor_y.min(10)
+                } else {
+                    1
+                };
+                if self.cursor_y >= jump {
+                    self.cursor_y -= jump;
                     let new_current_line_len = self.text.line(self.cursor_y).len_chars();
                     if self.cursor_x > new_current_line_len {
                         self.cursor_x = new_current_line_len - 1;
@@ -347,7 +358,7 @@ impl Editor {
             f.set_cursor_position(cursor_pos);
         })?;
 
-        if event::poll(Duration::from_millis(10))? {
+        if event::poll(Duration::from_millis(1))? {
             let event = event::read()?;
             self.handle_event(event)?;
         }
