@@ -113,7 +113,6 @@ impl Displayer {
                     .diagnostics
                     .iter()
                     .any(|d| d.line == Some(i) && d.level == DiagnosticLevel::Error);
-                
                 let has_warn = diag
                     .diagnostics
                     .iter()
@@ -127,11 +126,16 @@ impl Displayer {
                 };
 
                 let num = Span::styled(format!("{:>4} │ ", i), Style::default().fg(num_color));
+
                 let mut text = buf.text.line(i).to_string();
                 if text.ends_with('\n') {
                     text.pop();
                 }
-                Line::from(vec![num, Span::raw(text)])
+
+                let mut spans = vec![num];
+                spans.extend(buf.highlighter.highlight_line(i, &text));
+
+                Line::from(spans)
             })
             .collect();
 
@@ -174,7 +178,6 @@ impl Displayer {
         let mut components = if let Some(buf) = editor.buf()
             && let Some(active_buffer) = editor.active_buffer
         {
-            // Info diagnostics
             let diag_info = if diag.is_running {
                 Span::styled(" [checking...] ", Style::default().fg(Color::Gray))
             } else {
@@ -240,7 +243,6 @@ impl Displayer {
                 Style::default().fg(Color::Green),
             )));
         } else {
-            // Résumé
             let e = diag.error_count();
             let w = diag.warning_count();
             let mut summary = Vec::new();
@@ -263,7 +265,6 @@ impl Displayer {
                 "─".repeat(area.width.saturating_sub(2) as usize),
             ));
 
-            // Chaque diagnostic
             for d in &diag.diagnostics {
                 let (icon, color) = match d.level {
                     DiagnosticLevel::Error => ("✗", Color::Red),

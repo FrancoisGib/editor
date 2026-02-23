@@ -1,4 +1,3 @@
-// mode.rs
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use ratatui::style::{Color, Style};

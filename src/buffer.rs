@@ -1,6 +1,8 @@
 use ropey::Rope;
 use std::path::{Path, PathBuf};
 
+use crate::highlighter::Highlighter;
+
 pub struct Buffer {
     pub text: Rope,
     pub cursor_x: usize,
@@ -9,6 +11,7 @@ pub struct Buffer {
     pub filepath: Option<PathBuf>,
     pub name: String,
     pub modified: bool,
+    pub highlighter: Highlighter,
 }
 
 impl Buffer {
@@ -22,6 +25,9 @@ impl Buffer {
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| path.to_string_lossy().to_string());
 
+        let mut highlighter = Highlighter::new();
+        highlighter.update(&text.to_string());
+
         Self {
             text,
             cursor_x: 0,
@@ -30,6 +36,7 @@ impl Buffer {
             filepath: Some(path.to_path_buf()),
             name,
             modified: false,
+            highlighter,
         }
     }
 
@@ -89,37 +96,40 @@ impl Buffer {
         }
     }
 
-    pub fn insert_char(&mut self, c: char) {
-        let pos = self.line_start() + self.cursor_x;
-        self.text.insert_char(pos, c);
-        self.cursor_x += 1;
+    fn on_text_changed(&mut self) {
         self.modified = true;
+        self.highlighter.update(&self.text.to_string());
     }
 
-    pub fn newline(&mut self) {
-        let pos = self.line_start() + self.cursor_x;
-        self.text.insert_char(pos, '\n');
-        self.cursor_y += 1;
-        self.cursor_x = 0;
-        self.modified = true;
+    pub fn insert_char(&mut self, c: char) {
+        let pos = self.text.line_to_char(self.cursor_y) + self.cursor_x;
+        self.text.insert_char(pos, c);
+        self.cursor_x += 1;
+        self.on_text_changed();
     }
 
     pub fn delete_char(&mut self) {
-        let cx = self.cursor_x;
-        let cy = self.cursor_y;
-        if cx > 0 {
-            let pos = self.line_start() + cx;
+        if self.cursor_x > 0 {
+            let pos = self.text.line_to_char(self.cursor_y) + self.cursor_x;
             self.text.remove(pos - 1..pos);
             self.cursor_x -= 1;
-            self.modified = true;
-        } else if cy > 0 {
-            let pos = self.text.line_to_char(cy);
-            let prev_len = self.text.line(cy - 1).len_chars();
-            self.cursor_y -= 1;
-            self.cursor_x = prev_len - 1;
+            self.on_text_changed();
+        } else if self.cursor_y > 0 {
+            let pos = self.text.line_to_char(self.cursor_y);
+            let prev_len = self.visible_line_len(self.cursor_y - 1);
             self.text.remove(pos - 1..pos);
-            self.modified = true;
+            self.cursor_y -= 1;
+            self.cursor_x = prev_len;
+            self.on_text_changed();
         }
+    }
+
+    pub fn newline(&mut self) {
+        let pos = self.text.line_to_char(self.cursor_y) + self.cursor_x;
+        self.text.insert_char(pos, '\n');
+        self.cursor_y += 1;
+        self.cursor_x = 0;
+        self.on_text_changed();
     }
 
     pub fn jump_to_line(&mut self, line: usize) {
@@ -138,10 +148,6 @@ impl Buffer {
         } else if self.cursor_y >= self.scroll_y + viewport_height {
             self.scroll_y = self.cursor_y - viewport_height + 1;
         }
-    }
-
-    fn line_start(&self) -> usize {
-        self.text.line_to_char(self.cursor_y)
     }
 
     fn visible_line_len(&self, line_idx: usize) -> usize {

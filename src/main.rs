@@ -6,9 +6,9 @@ mod buffer;
 mod diagnostic;
 mod displayer;
 mod editor;
+mod highlighter;
 mod mode;
 mod tree;
-mod highlighter;
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();

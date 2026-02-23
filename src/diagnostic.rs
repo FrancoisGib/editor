@@ -1,4 +1,3 @@
-// diagnostics.rs
 use serde_json::Value;
 use std::{
     path::{Path, PathBuf},
@@ -50,7 +49,6 @@ impl DiagnosticState {
     }
 }
 
-/// Remonte les parents jusqu'à trouver un Cargo.toml
 fn find_project_dir(file: &Path) -> Option<PathBuf> {
     let mut dir = file.parent().map(|p| p.to_path_buf());
     loop {
