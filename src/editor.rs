@@ -264,7 +264,15 @@ impl Editor {
                     self.save_file()?;
                     self.should_quit = true;
                 }
-                _ => {}
+
+                str => {
+                    if let Ok(line) = str.parse::<usize>()
+                        && line < self.text.len_lines()
+                    {
+                        self.cursor_y = line;
+                        self.mode = EditorMode::Nav;
+                    }
+                }
             },
             _ => {}
         }
@@ -313,10 +321,10 @@ impl Editor {
 
             let visible_height = editor_h[1].height as usize - 2;
 
-            if self.cursor_y >= visible_height {
+            if self.cursor_y < self.scroll_y {
+                self.scroll_y = self.cursor_y;
+            } else if self.cursor_y >= self.scroll_y + visible_height {
                 self.scroll_y = self.cursor_y - visible_height + 1;
-            } else {
-                self.scroll_y = 0;
             }
 
             let mut line_nums: Vec<Line> = (self.scroll_y
