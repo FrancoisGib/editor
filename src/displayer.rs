@@ -157,9 +157,10 @@ impl Displayer {
             )]
         };
 
-        if editor.mode == EditorMode::Command {
-            components.push(Span::raw(format!(" :{} ", editor.command_str)));
+        if let EditorMode::Command { command_str, .. } = &editor.mode {
+            components.push(Span::raw(format!(" :{} ", command_str)));
         }
+
         f.render_widget(Paragraph::new(Line::from(components)), rect);
     }
 }
