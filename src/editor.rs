@@ -1,8 +1,8 @@
-use std::path::PathBuf;
+use std::{io::Stdout, path::PathBuf, time::Duration};
 
 use anyhow::Result;
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
-use ratatui::{Frame, layout::Rect, style::{Color, Style}, text::{Line, Span}, widgets::Paragraph};
+use crossterm::{event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind}, execute, terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode}};
+use ratatui::{Frame, Terminal, layout::{Constraint, Direction, Layout, Position, Rect}, prelude::CrosstermBackend, style::{Color, Style}, text::{Line, Span}, widgets::{Block, Borders, Paragraph}};
 use ropey::Rope;
 
 use crate::mode::EditorMode;
@@ -20,7 +20,7 @@ pub struct Editor {
 }
 
 impl Editor {
-    pub fn new(filename: &str) -> Self {
+    pub fn new(filename: &str) -> Result<Self> {
         let text = std::fs::read_to_string(filename)
             .map(|s| Rope::from_str(&s))
             .unwrap_or_else(|_| Rope::new());
@@ -28,7 +28,7 @@ impl Editor {
             .canonicalize()
             .unwrap_or_else(|_| PathBuf::from(filename));
 
-        Self {
+        Ok(Self {
             text,
             cursor_x: 0,
             cursor_y: 0,
@@ -38,7 +38,31 @@ impl Editor {
             scroll_y: 0,
             mode: EditorMode::Nav,
             command_str: String::new(),
+        })
+    }
+
+    pub fn run(mut self) -> Result<()> {
+        enable_raw_mode()?;
+
+        let mut stdout = std::io::stdout();
+        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+        let backend = CrosstermBackend::new(stdout);
+        let mut terminal = Terminal::new(backend)?;
+
+        loop {
+            if self.should_quit {
+                break;
+            }
+            self.editor_loop(&mut terminal)?;
         }
+
+        disable_raw_mode()?;
+        execute!(
+            terminal.backend_mut(),
+            LeaveAlternateScreen,
+            DisableMouseCapture
+        )?;
+        Ok(())
     }
 
     pub fn handle_event(&mut self, event: Event) -> Result<()> {
@@ -121,8 +145,10 @@ impl Editor {
                 if self.text.len_lines() - 1 > self.cursor_y {
                     self.cursor_y += 1;
                     let new_current_line_len = self.text.line(self.cursor_y).len_chars();
-                    if self.cursor_x > new_current_line_len - 1 {
+                    if new_current_line_len > 0 && self.cursor_x > new_current_line_len {
                         self.cursor_x = new_current_line_len - 1;
+                    } else {
+                        self.cursor_x = 0;
                     }
                 }
             }
@@ -130,7 +156,7 @@ impl Editor {
                 if self.cursor_y > 0 {
                     self.cursor_y -= 1;
                     let new_current_line_len = self.text.line(self.cursor_y).len_chars();
-                    if self.cursor_x > new_current_line_len - 1 {
+                    if self.cursor_x > new_current_line_len {
                         self.cursor_x = new_current_line_len - 1;
                     }
                 }
@@ -145,9 +171,10 @@ impl Editor {
             }
             KeyCode::Right => {
                 let current_line_len = self.text.line(self.cursor_y).len_chars();
-                if self.cursor_x < current_line_len - 1 {
+                let nb_lines = self.text.len_lines();
+                if self.cursor_y < nb_lines - 1 && self.cursor_x < current_line_len - 1 {
                     self.cursor_x += 1;
-                } else if self.cursor_y < self.text.len_lines() - 1 {
+                } else if self.cursor_y < nb_lines - 1 {
                     self.cursor_y += 1;
                     self.cursor_x = 0;
                 }
@@ -246,5 +273,83 @@ impl Editor {
             _ => {}
         }
         Ok(())
+    }
+
+    fn editor_loop(&mut self, terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
+        terminal.draw(|f| {
+                let size = f.area();
+                let vertical = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Min(1), Constraint::Length(1)])
+                    .split(size);
+
+                self.render_status(f, vertical[1]);
+
+                let main_h = Layout::default()
+                    .direction(Direction::Horizontal)
+                    // .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
+                    .constraints([Constraint::Min(1)])
+                    .split(vertical[0]);
+
+                let editor_h = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Length(6), Constraint::Min(1)])
+                    .split(main_h[0]);
+
+                let visible_height = editor_h[1].height as usize - 2;
+
+                if self.cursor_y >= visible_height {
+                    self.scroll_y = self.cursor_y - visible_height + 1;
+                } else {
+                    self.scroll_y = 0;
+                }
+
+                let mut line_nums: Vec<Line> = (self.scroll_y
+                    ..self
+                        .text
+                        .len_lines()
+                        .min(self.scroll_y + visible_height))
+                    .map(|i| {
+                        Line::from(Span::styled(
+                            format!("{:>4} ", i),
+                            Style::default().fg(Color::DarkGray),
+                        ))
+                    })
+                    .collect();
+
+                line_nums.insert(0, Line::from(""));
+
+                f.render_widget(Paragraph::new(line_nums), editor_h[0]);
+
+                let text: Vec<Line> = self
+                    .text
+                    .lines()
+                    .skip(self.scroll_y)
+                    .take(visible_height)
+                    .map(|l| Line::from(l.to_string()))
+                    .collect();
+
+                f.render_widget(
+                    Paragraph::new(text).block(
+                        Block::default()
+                            .title(format!(" {} ", self.filename))
+                            .borders(Borders::ALL),
+                    ),
+                    editor_h[1],
+                );
+
+                let cursor_pos = Position::new(
+                    self.cursor_x as u16 + 7,
+                    (self.cursor_y - self.scroll_y) as u16 + 1,
+                );
+
+                f.set_cursor_position(cursor_pos);
+            })?;
+
+            if event::poll(Duration::from_millis(10))? {
+                let event = event::read()?;
+                self.handle_event(event)?;
+            }
+            Ok(())
     }
 }
