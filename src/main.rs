@@ -7,7 +7,9 @@ mod diagnostic;
 mod displayer;
 mod editor;
 mod highlighter;
+mod keyboard;
 mod mode;
+mod mouse;
 mod tree;
 
 fn main() -> Result<()> {

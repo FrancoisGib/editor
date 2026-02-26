@@ -17,7 +17,9 @@ use crate::{
     buffer::Buffer,
     diagnostic::{DiagnosticState, spawn_cargo_check},
     displayer::Displayer,
+    keyboard::{KeyboardConfig, KeyboardHandler},
     mode::EditorMode,
+    mouse::{MouseConfig, MouseHandler},
     tree::FileTree,
 };
 
@@ -29,10 +31,20 @@ pub struct Editor {
     pub file_tree: FileTree,
     pub show_tree: bool,
     pub diag_state: Arc<Mutex<DiagnosticState>>,
+    pub keyboard_handler: KeyboardHandler,
+    pub mouse_handler: MouseHandler,
 }
 
 impl Editor {
     pub fn new(path: &str) -> Result<Self> {
+        Self::with_config(path, KeyboardConfig::default(), MouseConfig::default())
+    }
+
+    pub fn with_config(
+        path: &str,
+        key_config: KeyboardConfig,
+        mouse_config: MouseConfig,
+    ) -> Result<Self> {
         let canon_path = PathBuf::from(path)
             .canonicalize()
             .unwrap_or_else(|_| PathBuf::from(path));
@@ -69,6 +81,8 @@ impl Editor {
             file_tree: FileTree::new(&project_dir),
             show_tree: true,
             diag_state,
+            keyboard_handler: KeyboardHandler::new(key_config),
+            mouse_handler: MouseHandler::new(mouse_config),
         })
     }
 
@@ -135,8 +149,11 @@ impl Editor {
     }
 
     pub fn buf(&self) -> Option<&Buffer> {
-        self.active_buffer
-            .and_then(|active_buffer| self.buffers.get(active_buffer))
+        self.active_buffer.and_then(|i| self.buffers.get(i))
+    }
+
+    pub fn buf_mut(&mut self) -> Option<&mut Buffer> {
+        self.active_buffer.and_then(|i| self.buffers.get_mut(i))
     }
 
     pub fn handle_event(&mut self, event: Event) -> Result<()> {
@@ -148,17 +165,12 @@ impl Editor {
         Ok(())
     }
 
-    pub fn buf_mut(&mut self) -> Option<&mut Buffer> {
-        self.active_buffer
-            .and_then(|active_buffer| self.buffers.get_mut(active_buffer))
-    }
-
     pub fn open_file(&mut self, path: &Path) -> Result<()> {
         let canon = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
 
         for (i, buf) in self.buffers.iter().enumerate() {
-            if let Some(path) = &buf.filepath
-                && *path == canon
+            if let Some(p) = &buf.filepath
+                && *p == canon
             {
                 self.active_buffer = Some(i);
                 return Ok(());
@@ -167,9 +179,7 @@ impl Editor {
 
         self.buffers.push(Buffer::from_file(&canon));
         self.active_buffer = Some(self.buffers.len() - 1);
-
         spawn_cargo_check(&self.diag_state, &canon);
-
         Ok(())
     }
 
@@ -178,28 +188,28 @@ impl Editor {
             return;
         }
         self.buffers.remove(idx);
-        if !self.buffers.is_empty() {
-            self.active_buffer = Some(self.buffers.len() - 1);
+        self.active_buffer = if self.buffers.is_empty() {
+            None
         } else {
-            self.active_buffer = None;
-        }
+            Some(self.buffers.len() - 1)
+        };
     }
 
     pub fn next_buffer(&mut self) {
-        let nb_buffers = self.buffers.len();
+        let n = self.buffers.len();
         if let Some(active) = self.active_buffer
-            && nb_buffers > 1
+            && n > 1
         {
-            self.active_buffer = Some((active + 1) % nb_buffers);
+            self.active_buffer = Some((active + 1) % n);
         }
     }
 
     pub fn prev_buffer(&mut self) {
-        let nb_buffer = self.buffers.len();
+        let n = self.buffers.len();
         if let Some(active) = self.active_buffer
-            && nb_buffer > 1
+            && n > 1
         {
-            self.active_buffer = Some((active + nb_buffer - 1) % nb_buffer);
+            self.active_buffer = Some((active + n - 1) % n);
         }
     }
 
@@ -229,14 +239,16 @@ impl Editor {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
-        let mode = std::mem::replace(&mut self.mode, EditorMode::Nav);
-        self.mode = mode.handle_key(key, self)?;
+        let keyboard_handler = std::mem::take(&mut self.keyboard_handler);
+        keyboard_handler.handle_key(key, self)?;
+        self.keyboard_handler = keyboard_handler;
         Ok(())
     }
 
     fn handle_mouse(&mut self, mouse_event: MouseEvent) -> Result<()> {
-        let mode = std::mem::replace(&mut self.mode, EditorMode::Nav);
-        self.mode = mode.handle_mouse(mouse_event, self)?;
+        let mouse_handler = std::mem::take(&mut self.mouse_handler);
+        mouse_handler.handle_mouse(mouse_event, self)?;
+        self.mouse_handler = mouse_handler;
         Ok(())
     }
 }

@@ -15,41 +15,39 @@ impl Theme {
         let mut styles = HashMap::new();
 
         // ── VS Code Dark Modern — faithful palette ──────────────────────
-        let keyword   = Color::Rgb(86,  156, 214);  // #569CD6  — keywords
-        let control   = Color::Rgb(197, 134, 192);  // #C586C0  — control flow
-        let function  = Color::Rgb(220, 220, 170);  // #DCDCAA  — functions / macros
-        let type_c    = Color::Rgb(78,  201, 176);  // #4EC9B0  — types / traits
-        let string    = Color::Rgb(206, 145, 120);  // #CE9178  — strings
-        let escape    = Color::Rgb(215, 186, 125);  // #D7BA7D  — escape sequences
-        let number    = Color::Rgb(181, 206, 168);  // #B5CEA8  — numeric literals
-        let comment   = Color::Rgb(106, 153, 85);   // #6A9955  — comments (italic)
-        let doc_com   = Color::Rgb(127, 178, 103);  // #7FB267  — doc comments (brighter green)
-        let variable  = Color::Rgb(156, 220, 254);  // #9CDCFE  — variables / params
-        let constant  = Color::Rgb(79,  193, 255);  // #4FC1FF  — constants / enum variants
-        let attribute = Color::Rgb(156, 220, 254);  // #9CDCFE  — attributes
-        let lifetime  = Color::Rgb(86,  156, 214);  // #569CD6  — lifetimes
-        let punct     = Color::Rgb(212, 212, 212);  // #D4D4D4  — punctuation / operators
-        let default   = Color::Rgb(212, 212, 212);  // #D4D4D4  — plain text
-        let namespace = Color::Rgb(78,  201, 176);  // #4EC9B0  — modules / crates
+        let keyword = Color::Rgb(86, 156, 214); // #569CD6  — keywords
+        let control = Color::Rgb(197, 134, 192); // #C586C0  — control flow
+        let function = Color::Rgb(220, 220, 170); // #DCDCAA  — functions / macros
+        let type_c = Color::Rgb(78, 201, 176); // #4EC9B0  — types / traits
+        let string = Color::Rgb(206, 145, 120); // #CE9178  — strings
+        let escape = Color::Rgb(215, 186, 125); // #D7BA7D  — escape sequences
+        let number = Color::Rgb(181, 206, 168); // #B5CEA8  — numeric literals
+        let comment = Color::Rgb(106, 153, 85); // #6A9955  — comments (italic)
+        let doc_com = Color::Rgb(127, 178, 103); // #7FB267  — doc comments (brighter green)
+        let variable = Color::Rgb(156, 220, 254); // #9CDCFE  — variables / params
+        let constant = Color::Rgb(79, 193, 255); // #4FC1FF  — constants / enum variants
+        let attribute = Color::Rgb(156, 220, 254); // #9CDCFE  — attributes
+        let lifetime = Color::Rgb(86, 156, 214); // #569CD6  — lifetimes
+        let punct = Color::Rgb(212, 212, 212); // #D4D4D4  — punctuation / operators
+        let default = Color::Rgb(212, 212, 212); // #D4D4D4  — plain text
+        let namespace = Color::Rgb(78, 201, 176); // #4EC9B0  — modules / crates
 
         // Helper — VS Code Dark Modern uses NO bold for most tokens
-        let s  = |fg: Color| Style::default().fg(fg);
+        let s = |fg: Color| Style::default().fg(fg);
         let si = |fg: Color| Style::default().fg(fg).add_modifier(Modifier::ITALIC);
 
         // ── Keywords ────────────────────────────────────────────────────
         for kw in [
-            "fn", "let", "use", "mod", "pub", "struct", "enum", "impl",
-            "trait", "where", "as", "in", "ref", "const", "static", "type",
-            "unsafe", "async", "await", "move", "dyn", "crate", "super",
-            "extern", "mut",
+            "fn", "let", "use", "mod", "pub", "struct", "enum", "impl", "trait", "where", "as",
+            "in", "ref", "const", "static", "type", "unsafe", "async", "await", "move", "dyn",
+            "crate", "super", "extern", "mut",
         ] {
             styles.insert(kw, s(keyword));
         }
 
         // ── Control flow ────────────────────────────────────────────────
         for kw in [
-            "if", "else", "match", "for", "while", "loop",
-            "return", "break", "continue",
+            "if", "else", "match", "for", "while", "loop", "return", "break", "continue",
         ] {
             styles.insert(kw, s(control));
         }
@@ -57,92 +55,92 @@ impl Theme {
         // ── Tree-sitter node kinds ──────────────────────────────────────
 
         // Generic keyword fallback
-        styles.insert("keyword",             s(keyword));
+        styles.insert("keyword", s(keyword));
 
         // Functions
-        styles.insert("function",            s(function));
-        styles.insert("function.method",     s(function));
+        styles.insert("function", s(function));
+        styles.insert("function.method", s(function));
 
         // Types
-        styles.insert("type",                s(type_c));
-        styles.insert("type_identifier",     s(type_c));
-        styles.insert("primitive_type",      s(type_c));
+        styles.insert("type", s(type_c));
+        styles.insert("type_identifier", s(type_c));
+        styles.insert("primitive_type", s(type_c));
         styles.insert("scoped_type_identifier", s(type_c));
-        styles.insert("generic_type",        s(type_c));
+        styles.insert("generic_type", s(type_c));
 
         // Strings
-        styles.insert("string_literal",      s(string));
-        styles.insert("string_content",      s(string));
-        styles.insert("char_literal",        s(string));
-        styles.insert("raw_string_literal",  s(string));
-        styles.insert("escape_sequence",     s(escape));
+        styles.insert("string_literal", s(string));
+        styles.insert("string_content", s(string));
+        styles.insert("char_literal", s(string));
+        styles.insert("raw_string_literal", s(string));
+        styles.insert("escape_sequence", s(escape));
 
         // Numbers
-        styles.insert("integer_literal",     s(number));
-        styles.insert("float_literal",       s(number));
+        styles.insert("integer_literal", s(number));
+        styles.insert("float_literal", s(number));
 
         // Booleans — VS Code treats true/false as keyword-blue
-        styles.insert("boolean_literal",     s(keyword));
-        styles.insert("true",               s(keyword));
-        styles.insert("false",              s(keyword));
+        styles.insert("boolean_literal", s(keyword));
+        styles.insert("true", s(keyword));
+        styles.insert("false", s(keyword));
 
         // Comments — italic, no bold
-        styles.insert("line_comment",        si(comment));
-        styles.insert("block_comment",       si(comment));
-        styles.insert("doc_comment",         si(doc_com));
+        styles.insert("line_comment", si(comment));
+        styles.insert("block_comment", si(comment));
+        styles.insert("doc_comment", si(doc_com));
 
         // Identifiers
-        styles.insert("identifier",          s(variable));
-        styles.insert("field_identifier",    s(variable));
+        styles.insert("identifier", s(variable));
+        styles.insert("field_identifier", s(variable));
         styles.insert("shorthand_field_identifier", s(variable));
 
         // Constants / enum variants
-        styles.insert("enum_variant",        s(constant));
+        styles.insert("enum_variant", s(constant));
 
         // Attributes
-        styles.insert("attribute_item",      si(attribute));
+        styles.insert("attribute_item", si(attribute));
         styles.insert("inner_attribute_item", si(attribute));
-        styles.insert("attribute",           si(attribute));
+        styles.insert("attribute", si(attribute));
 
         // Macros
-        styles.insert("macro_invocation",    s(function));
-        styles.insert("macro_definition",    s(function));
+        styles.insert("macro_invocation", s(function));
+        styles.insert("macro_definition", s(function));
 
         // Lifetimes
-        styles.insert("lifetime",            s(lifetime));
+        styles.insert("lifetime", s(lifetime));
 
         // self / Self
-        styles.insert("self",               s(keyword));
-        styles.insert("metavariable",        s(keyword));
+        styles.insert("self", s(keyword));
+        styles.insert("metavariable", s(keyword));
 
         // mut specifier
-        styles.insert("mutable_specifier",   s(keyword));
+        styles.insert("mutable_specifier", s(keyword));
 
         // Modules / namespaces
-        styles.insert("scoped_identifier",   s(namespace));
+        styles.insert("scoped_identifier", s(namespace));
 
         // Operators / punctuation — same as default text
-        styles.insert("operator",            s(punct));
-        styles.insert("::",                  s(punct));
-        styles.insert("->",                  s(punct));
-        styles.insert("=>",                  s(punct));
-        styles.insert("&",                   s(punct));
-        styles.insert("*",                   s(punct));
-        styles.insert("!",                   s(punct));
+        styles.insert("operator", s(punct));
+        styles.insert("::", s(punct));
+        styles.insert("->", s(punct));
+        styles.insert("=>", s(punct));
+        styles.insert("&", s(punct));
+        styles.insert("*", s(punct));
+        styles.insert("!", s(punct));
 
         // Punctuation brackets
-        styles.insert("(",                   s(punct));
-        styles.insert(")",                   s(punct));
-        styles.insert("{",                   s(punct));
-        styles.insert("}",                   s(punct));
-        styles.insert("[",                   s(punct));
-        styles.insert("]",                   s(punct));
-        styles.insert("<",                   s(punct));
-        styles.insert(">",                   s(punct));
-        styles.insert(",",                   s(punct));
-        styles.insert(";",                   s(punct));
-        styles.insert(":",                   s(punct));
-        styles.insert(".",                   s(punct));
+        styles.insert("(", s(punct));
+        styles.insert(")", s(punct));
+        styles.insert("{", s(punct));
+        styles.insert("}", s(punct));
+        styles.insert("[", s(punct));
+        styles.insert("]", s(punct));
+        styles.insert("<", s(punct));
+        styles.insert(">", s(punct));
+        styles.insert(",", s(punct));
+        styles.insert(";", s(punct));
+        styles.insert(":", s(punct));
+        styles.insert(".", s(punct));
 
         Self {
             styles,
@@ -246,11 +244,11 @@ impl Highlighter {
                 // fall through
             } else if kind == "line_comment" || kind == "block_comment" {
                 // Distinguish doc comments (/// //! /** /*!)
-                let text = node
-                    .utf8_text(self.source_cache.as_bytes())
-                    .unwrap_or("");
-                if text.starts_with("///") || text.starts_with("//!") 
-                    || text.starts_with("/**") || text.starts_with("/*!")
+                let text = node.utf8_text(self.source_cache.as_bytes()).unwrap_or("");
+                if text.starts_with("///")
+                    || text.starts_with("//!")
+                    || text.starts_with("/**")
+                    || text.starts_with("/*!")
                 {
                     return self.theme.style_for("doc_comment");
                 }
@@ -343,8 +341,7 @@ impl Highlighter {
                 }
 
                 // ── Parameters ─────────────────────────────────────
-                ("parameter", "identifier")
-                | ("closure_parameters", "identifier") => {
+                ("parameter", "identifier") | ("closure_parameters", "identifier") => {
                     return self.theme.style_for("identifier");
                 }
 

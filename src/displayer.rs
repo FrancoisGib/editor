@@ -29,8 +29,7 @@ impl Displayer {
     }
 
     pub fn draw(&mut self, editor: &Editor) -> anyhow::Result<()> {
-        let is_cursor_visible = editor.mode == EditorMode::Nav
-            || editor.mode == EditorMode::Insert;
+        let is_cursor_visible = editor.mode == EditorMode::Nav || editor.mode == EditorMode::Insert;
         if is_cursor_visible {
             self.terminal.show_cursor()?;
         } else {
