@@ -17,7 +17,6 @@ pub enum EditorMode {
         command_str: String,
         former_mode: Box<EditorMode>,
     },
-    Autocomplete,
 }
 
 impl PartialEq for EditorMode {
@@ -40,7 +39,6 @@ impl EditorMode {
             Self::Insert => Style::default().fg(Color::Yellow),
             Self::TreeNav => Style::default().fg(Color::Black).bg(Color::Cyan),
             Self::Command { .. } => Style::default().fg(Color::Red),
-            Self::Autocomplete => Style::default().fg(Color::Black).bg(Color::Magenta),
         }
     }
 
@@ -53,7 +51,6 @@ impl EditorMode {
                 command_str,
                 former_mode,
             } => Self::handle_command(key, editor, command_str, former_mode),
-            Self::Autocomplete => Self::handle_autocomplete(key, editor),
         }
     }
 
@@ -160,18 +157,8 @@ impl EditorMode {
             KeyCode::Char('q') if key.modifiers == KeyModifiers::CONTROL => {
                 editor.should_quit = true;
             }
-            KeyCode::Char(' ') if key.modifiers == KeyModifiers::CONTROL => {
-                editor.trigger_completion();
-            }
             KeyCode::Char(c) => {
                 editor.insert_char(c);
-                if c == '.'
-                    || c == ':'
-                    || (c.is_alphanumeric() || c == '_')
-                        && editor.get_word_before_cursor().len() >= 2
-                {
-                    editor.trigger_completion();
-                }
             }
             KeyCode::Backspace => {
                 editor.delete_char();
@@ -292,49 +279,6 @@ impl EditorMode {
             }
         }
     }
-
-    fn handle_autocomplete(key: KeyEvent, editor: &mut Editor) -> Result<EditorMode> {
-        match key.code {
-            KeyCode::Down => {
-                editor.completion.move_down();
-                editor.request_resolve();
-                Ok(Self::Autocomplete)
-            }
-            KeyCode::Up => {
-                editor.completion.move_up();
-                editor.request_resolve();
-                Ok(Self::Autocomplete)
-            }
-            KeyCode::Tab | KeyCode::Enter => {
-                editor.apply_completion();
-                Ok(Self::Insert)
-            }
-            KeyCode::Esc => {
-                editor.completion.clear();
-                Ok(Self::Insert)
-            }
-            KeyCode::Backspace => {
-                editor.completion.clear();
-                editor.delete_char();
-                Ok(Self::Insert)
-            }
-            KeyCode::Char(c) => {
-                editor.insert_char(c);
-                let prefix = editor.get_word_before_cursor();
-                editor.completion.filter(&prefix);
-                if editor.completion.is_active() {
-                    editor.trigger_completion();
-                    Ok(Self::Autocomplete)
-                } else {
-                    Ok(Self::Insert)
-                }
-            }
-            _ => {
-                editor.completion.clear();
-                Ok(Self::Insert)
-            }
-        }
-    }
 }
 
 impl Display for EditorMode {
@@ -344,7 +288,6 @@ impl Display for EditorMode {
             Self::Insert => "INSERT",
             Self::TreeNav => "TREE",
             Self::Command { .. } => "COMMAND",
-            Self::Autocomplete => "COMPLETE",
         })
     }
 }

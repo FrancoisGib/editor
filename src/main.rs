@@ -3,12 +3,10 @@ use anyhow::Result;
 use crate::editor::Editor;
 
 mod buffer;
-mod completion;
 mod diagnostic;
 mod displayer;
 mod editor;
 mod highlighter;
-mod lsp;
 mod mode;
 mod tree;
 

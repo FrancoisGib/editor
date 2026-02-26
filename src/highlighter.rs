@@ -14,141 +14,139 @@ impl Theme {
     fn vscode_dark_modern() -> Self {
         let mut styles = HashMap::new();
 
-        // VS Code Dark Modern palette
-        let keyword = Color::Rgb(86, 156, 214); // #569CD6
-        let control = Color::Rgb(197, 134, 192); // #C586C0
-        let function = Color::Rgb(220, 220, 170); // #DCDCAA
-        let type_color = Color::Rgb(78, 201, 176); // #4EC9B0
-        let string = Color::Rgb(206, 145, 120); // #CE9178
-        let number = Color::Rgb(181, 206, 168); // #B5CEA8
-        let comment = Color::Rgb(106, 153, 85); // #6A9955
-        let variable = Color::Rgb(156, 220, 254); // #9CDCFE
-        let constant = Color::Rgb(100, 150, 224); // #4FC1FF
-        let attribute = Color::Rgb(156, 220, 254); // #9CDCFE
-        let macro_c = Color::Rgb(220, 220, 170); // #DCDCAA
-        let lifetime = Color::Rgb(86, 156, 214); // #569CD6
-        let operator = Color::Rgb(212, 212, 212); // #D4D4D4
-        let default = Color::Rgb(212, 212, 212); // #D4D4D4
+        // ── VS Code Dark Modern — faithful palette ──────────────────────
+        let keyword   = Color::Rgb(86,  156, 214);  // #569CD6  — keywords
+        let control   = Color::Rgb(197, 134, 192);  // #C586C0  — control flow
+        let function  = Color::Rgb(220, 220, 170);  // #DCDCAA  — functions / macros
+        let type_c    = Color::Rgb(78,  201, 176);  // #4EC9B0  — types / traits
+        let string    = Color::Rgb(206, 145, 120);  // #CE9178  — strings
+        let escape    = Color::Rgb(215, 186, 125);  // #D7BA7D  — escape sequences
+        let number    = Color::Rgb(181, 206, 168);  // #B5CEA8  — numeric literals
+        let comment   = Color::Rgb(106, 153, 85);   // #6A9955  — comments (italic)
+        let doc_com   = Color::Rgb(127, 178, 103);  // #7FB267  — doc comments (brighter green)
+        let variable  = Color::Rgb(156, 220, 254);  // #9CDCFE  — variables / params
+        let constant  = Color::Rgb(79,  193, 255);  // #4FC1FF  — constants / enum variants
+        let attribute = Color::Rgb(156, 220, 254);  // #9CDCFE  — attributes
+        let lifetime  = Color::Rgb(86,  156, 214);  // #569CD6  — lifetimes
+        let punct     = Color::Rgb(212, 212, 212);  // #D4D4D4  — punctuation / operators
+        let default   = Color::Rgb(212, 212, 212);  // #D4D4D4  — plain text
+        let namespace = Color::Rgb(78,  201, 176);  // #4EC9B0  — modules / crates
 
-        // let s  = |fg: Color| Style::default().fg(fg);
-        let s = |fg: Color| Style::default().fg(fg).add_modifier(Modifier::BOLD);
+        // Helper — VS Code Dark Modern uses NO bold for most tokens
+        let s  = |fg: Color| Style::default().fg(fg);
+        let si = |fg: Color| Style::default().fg(fg).add_modifier(Modifier::ITALIC);
 
+        // ── Keywords ────────────────────────────────────────────────────
         for kw in [
-            "fn", "let", "use", "mod", "pub", "struct", "enum", "impl", "trait", "where", "as",
-            "in", "ref", "const", "static", "type", "unsafe", "async", "await", "move", "dyn",
-            "crate", "super", "extern",
+            "fn", "let", "use", "mod", "pub", "struct", "enum", "impl",
+            "trait", "where", "as", "in", "ref", "const", "static", "type",
+            "unsafe", "async", "await", "move", "dyn", "crate", "super",
+            "extern", "mut",
         ] {
             styles.insert(kw, s(keyword));
         }
 
+        // ── Control flow ────────────────────────────────────────────────
         for kw in [
-            "if", "else", "match", "for", "while", "loop", "return", "break", "continue", "mut",
+            "if", "else", "match", "for", "while", "loop",
+            "return", "break", "continue",
         ] {
             styles.insert(kw, s(control));
         }
 
-        // Tree-sitter node types
-        styles.insert("keyword", s(keyword));
+        // ── Tree-sitter node kinds ──────────────────────────────────────
 
-        // Fonctions
-        styles.insert("function", s(function));
-        styles.insert("function.method", s(function));
+        // Generic keyword fallback
+        styles.insert("keyword",             s(keyword));
+
+        // Functions
+        styles.insert("function",            s(function));
+        styles.insert("function.method",     s(function));
 
         // Types
-        styles.insert("type", s(type_color));
-        styles.insert("type_identifier", s(type_color));
-        styles.insert("primitive_type", s(type_color));
+        styles.insert("type",                s(type_c));
+        styles.insert("type_identifier",     s(type_c));
+        styles.insert("primitive_type",      s(type_c));
+        styles.insert("scoped_type_identifier", s(type_c));
+        styles.insert("generic_type",        s(type_c));
 
         // Strings
-        styles.insert("string_literal", s(string));
-        styles.insert("string_content", s(string));
-        styles.insert("char_literal", s(string));
-        styles.insert("raw_string_literal", s(string));
+        styles.insert("string_literal",      s(string));
+        styles.insert("string_content",      s(string));
+        styles.insert("char_literal",        s(string));
+        styles.insert("raw_string_literal",  s(string));
+        styles.insert("escape_sequence",     s(escape));
 
         // Numbers
-        styles.insert("integer_literal", s(number));
-        styles.insert("float_literal", s(number));
+        styles.insert("integer_literal",     s(number));
+        styles.insert("float_literal",       s(number));
 
-        // Booleans
-        styles.insert("boolean_literal", s(constant));
-        styles.insert("true", s(constant));
-        styles.insert("false", s(constant));
+        // Booleans — VS Code treats true/false as keyword-blue
+        styles.insert("boolean_literal",     s(keyword));
+        styles.insert("true",               s(keyword));
+        styles.insert("false",              s(keyword));
 
-        // Comments
-        styles.insert("line_comment", s(comment));
-        styles.insert("block_comment", s(comment));
+        // Comments — italic, no bold
+        styles.insert("line_comment",        si(comment));
+        styles.insert("block_comment",       si(comment));
+        styles.insert("doc_comment",         si(doc_com));
 
         // Identifiers
-        styles.insert("identifier", s(variable));
-        styles.insert("field_identifier", s(variable));
+        styles.insert("identifier",          s(variable));
+        styles.insert("field_identifier",    s(variable));
+        styles.insert("shorthand_field_identifier", s(variable));
+
+        // Constants / enum variants
+        styles.insert("enum_variant",        s(constant));
 
         // Attributes
-        styles.insert("attribute_item", s(attribute));
-        styles.insert("inner_attribute_item", s(attribute));
+        styles.insert("attribute_item",      si(attribute));
+        styles.insert("inner_attribute_item", si(attribute));
+        styles.insert("attribute",           si(attribute));
 
         // Macros
-        styles.insert("macro_invocation", s(macro_c));
+        styles.insert("macro_invocation",    s(function));
+        styles.insert("macro_definition",    s(function));
 
         // Lifetimes
-        styles.insert("lifetime", s(lifetime));
+        styles.insert("lifetime",            s(lifetime));
 
-        // self
-        styles.insert("self", s(keyword));
-        styles.insert("mutable_specifier", s(control));
+        // self / Self
+        styles.insert("self",               s(keyword));
+        styles.insert("metavariable",        s(keyword));
 
-        // operators
-        styles.insert("operator", s(operator));
-        styles.insert("::", s(operator));
-        styles.insert("->", s(operator));
-        styles.insert("=>", s(operator));
+        // mut specifier
+        styles.insert("mutable_specifier",   s(keyword));
+
+        // Modules / namespaces
+        styles.insert("scoped_identifier",   s(namespace));
+
+        // Operators / punctuation — same as default text
+        styles.insert("operator",            s(punct));
+        styles.insert("::",                  s(punct));
+        styles.insert("->",                  s(punct));
+        styles.insert("=>",                  s(punct));
+        styles.insert("&",                   s(punct));
+        styles.insert("*",                   s(punct));
+        styles.insert("!",                   s(punct));
+
+        // Punctuation brackets
+        styles.insert("(",                   s(punct));
+        styles.insert(")",                   s(punct));
+        styles.insert("{",                   s(punct));
+        styles.insert("}",                   s(punct));
+        styles.insert("[",                   s(punct));
+        styles.insert("]",                   s(punct));
+        styles.insert("<",                   s(punct));
+        styles.insert(">",                   s(punct));
+        styles.insert(",",                   s(punct));
+        styles.insert(";",                   s(punct));
+        styles.insert(":",                   s(punct));
+        styles.insert(".",                   s(punct));
 
         Self {
             styles,
             default: Style::default().fg(default),
-        }
-    }
-
-    fn _monokai() -> Self {
-        let mut styles = HashMap::new();
-        let s = |fg: Color| Style::default().fg(fg);
-        let sb = |fg: Color| Style::default().fg(fg).add_modifier(Modifier::BOLD);
-
-        for kw in [
-            "fn", "let", "mut", "if", "else", "match", "for", "while", "loop", "return", "use",
-            "mod", "pub", "struct", "enum", "impl", "trait", "where", "as", "in", "ref", "self",
-            "super", "crate", "const", "static", "type", "unsafe", "async", "await", "move",
-            "break", "continue", "dyn",
-        ] {
-            styles.insert(kw, sb(Color::Red));
-        }
-
-        styles.insert("keyword", sb(Color::Red));
-        styles.insert("function", s(Color::Green));
-        styles.insert("function.method", s(Color::Green));
-        styles.insert("type", s(Color::Cyan));
-        styles.insert("type_identifier", s(Color::Cyan));
-        styles.insert("primitive_type", sb(Color::Cyan));
-        styles.insert("string_literal", s(Color::Yellow));
-        styles.insert("string_content", s(Color::Yellow));
-        styles.insert("char_literal", s(Color::Yellow));
-        styles.insert("integer_literal", s(Color::Magenta));
-        styles.insert("float_literal", s(Color::Magenta));
-        styles.insert("boolean_literal", sb(Color::Magenta));
-        styles.insert("line_comment", s(Color::DarkGray));
-        styles.insert("block_comment", s(Color::DarkGray));
-        styles.insert("attribute_item", s(Color::LightBlue));
-        styles.insert("macro_invocation", s(Color::LightRed));
-        styles.insert("identifier", s(Color::White));
-        styles.insert("field_identifier", s(Color::LightCyan));
-        styles.insert("lifetime", s(Color::LightMagenta));
-        styles.insert("mutable_specifier", sb(Color::Red));
-        styles.insert("self", sb(Color::Red));
-        styles.insert("true", sb(Color::Magenta));
-        styles.insert("false", sb(Color::Magenta));
-
-        Self {
-            styles,
-            default: Style::default().fg(Color::White),
         }
     }
 
@@ -171,6 +169,7 @@ impl Highlighter {
         parser
             .set_language(&language.into())
             .expect("Error loading Rust grammar");
+
         Self {
             parser,
             tree: None,
@@ -205,6 +204,7 @@ impl Highlighter {
         for (start, end, style) in &spans {
             let s = (*start).min(len);
             let e = (*end).min(len);
+
             if s > pos {
                 result.push(Span::styled(
                     line_text[pos..s].to_string(),
@@ -231,6 +231,135 @@ impl Highlighter {
         }
     }
 
+    /// Resolve the style for a leaf node with semantic context from its parent.
+    ///
+    /// This is the key to getting close to VS Code's behaviour: tree-sitter
+    /// gives us syntax nodes, but the *meaning* often depends on where the
+    /// identifier sits in the tree (function name vs variable vs type …).
+    fn resolve_semantic_style(&self, node: ts::Node) -> Style {
+        let kind = node.kind();
+
+        // 1. Direct match on the node kind (keywords, literals, comments …)
+        if let Some(&s) = self.theme.styles.get(kind) {
+            // For "identifier" we want to fall through to semantic checks
+            if kind == "identifier" {
+                // fall through
+            } else if kind == "line_comment" || kind == "block_comment" {
+                // Distinguish doc comments (/// //! /** /*!)
+                let text = node
+                    .utf8_text(self.source_cache.as_bytes())
+                    .unwrap_or("");
+                if text.starts_with("///") || text.starts_with("//!") 
+                    || text.starts_with("/**") || text.starts_with("/*!")
+                {
+                    return self.theme.style_for("doc_comment");
+                }
+                return s;
+            } else {
+                return s;
+            }
+        }
+
+        // 2. Semantic disambiguation via parent (and grandparent)
+        if let Some(parent) = node.parent() {
+            let pk = parent.kind();
+            let gp_kind = parent.parent().map(|gp| gp.kind());
+
+            // Helper: is this node the "name" child that sits right before
+            // an argument list inside a call_expression?
+            let is_call_target = |p: &str, gp: Option<&str>| -> bool {
+                // Direct: call_expression > identifier
+                if p == "call_expression" {
+                    return true;
+                }
+                // Scoped: call_expression > scoped_identifier > identifier "new"
+                //   e.g. Vec::new(), String::from()
+                if p == "scoped_identifier" && gp == Some("call_expression") {
+                    // Only the last segment (the function name)
+                    return node.next_sibling().is_none();
+                }
+                // Generic: call_expression > generic_function > identifier
+                if p == "generic_function" && gp == Some("call_expression") {
+                    return true;
+                }
+                if p == "generic_function" {
+                    return true;
+                }
+                false
+            };
+
+            match (pk, kind) {
+                // ── Function definitions ────────────────────────────
+                ("function_item", "identifier") => {
+                    return self.theme.style_for("function");
+                }
+
+                // ── Function / method calls ─────────────────────────
+                (_, "identifier") if is_call_target(pk, gp_kind) => {
+                    return self.theme.style_for("function");
+                }
+
+                // ── Macro name (before the `!`) ────────────────────
+                ("macro_invocation", "identifier") => {
+                    return self.theme.style_for("macro_invocation");
+                }
+
+                // ── Methods via field_expression ────────────────────
+                // e.g. foo.bar()  →  call_expression > field_expression > field_identifier "bar"
+                // e.g. foo.bar    →  field_expression > field_identifier "bar"  (field access)
+                ("field_expression", "field_identifier") => {
+                    if gp_kind == Some("call_expression") {
+                        return self.theme.style_for("function");
+                    }
+                    return self.theme.style_for("field_identifier");
+                }
+
+                // ── Types ──────────────────────────────────────────
+                ("type_identifier", _)
+                | ("scoped_type_identifier", "identifier")
+                | ("struct_item", "type_identifier")
+                | ("enum_item", "type_identifier")
+                | ("impl_item", "type_identifier")
+                | ("trait_item", "type_identifier")
+                | ("type_arguments", "type_identifier")
+                | ("function_item", "type_identifier") => {
+                    return self.theme.style_for("type");
+                }
+
+                // use declarations — colour path segments as namespace/type
+                ("use_declaration", _)
+                | ("use_as_clause", "identifier")
+                | ("scoped_use_list", "identifier")
+                | ("use_wildcard", _)
+                | ("use_list", "identifier") => {
+                    return self.theme.style_for("type");
+                }
+
+                // Scoped identifiers: std::io::Result, MyEnum::Variant
+                // If inside a call_expression the last segment was already
+                // caught above; otherwise treat as type/namespace.
+                ("scoped_identifier", "identifier") => {
+                    return self.theme.style_for("type");
+                }
+
+                // ── Parameters ─────────────────────────────────────
+                ("parameter", "identifier")
+                | ("closure_parameters", "identifier") => {
+                    return self.theme.style_for("identifier");
+                }
+
+                _ => {}
+            }
+        }
+
+        // 3. Fallback — known identifier → variable colour, else default
+        if kind == "identifier" {
+            return self.theme.style_for("identifier");
+        }
+
+        self.theme.default
+    }
+
     fn collect_leaf_styles(
         &self,
         node: ts::Node,
@@ -240,30 +369,15 @@ impl Highlighter {
         let start_line = node.start_position().row;
         let end_line = node.end_position().row;
 
+        // Prune branches that don't touch this line
         if end_line < line_idx || start_line > line_idx {
             return;
         }
 
-        if node.child_count() == 0 {
-            let kind = node.kind();
+        let kind = node.kind();
 
-            let style = if let Some(s) = self.theme.styles.get(kind) {
-                *s
-            } else if let Some(parent) = node.parent() {
-                match (parent.kind(), kind) {
-                    ("function_item", "identifier") => self.theme.style_for("function"),
-                    ("call_expression", "identifier") => self.theme.style_for("function"),
-                    ("macro_invocation", "identifier") => self.theme.style_for("macro_invocation"),
-                    ("field_expression", "field_identifier") => {
-                        self.theme.style_for("field_identifier")
-                    }
-                    ("scoped_identifier", "identifier") => self.theme.style_for("type"),
-                    ("use_declaration", _) => self.theme.style_for("type"),
-                    _ => self.theme.default,
-                }
-            } else {
-                self.theme.default
-            };
+        if node.child_count() == 0 || kind == "line_comment" || kind == "block_comment" {
+            let style = self.resolve_semantic_style(node);
 
             if node.start_position().row == line_idx {
                 let start_col = node.start_position().column;
