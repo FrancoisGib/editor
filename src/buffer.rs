@@ -229,7 +229,7 @@ impl Buffer {
         }
     }
 
-    fn visible_line_len(&self, line_idx: usize) -> usize {
+    pub fn visible_line_len(&self, line_idx: usize) -> usize {
         let len = self.text.line(line_idx).len_chars();
         if line_idx + 1 < self.text.len_lines() {
             len - 1

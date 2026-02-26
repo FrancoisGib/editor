@@ -15,6 +15,8 @@ use crate::{
     mode::EditorMode,
 };
 
+const GUTTER_WIDTH: u16 = 7;
+
 pub struct Displayer {
     terminal: Terminal<CrosstermBackend<Stdout>>,
 }
@@ -28,7 +30,7 @@ impl Displayer {
         self.terminal.backend_mut()
     }
 
-    pub fn draw(&mut self, editor: &Editor) -> anyhow::Result<()> {
+    pub fn draw(&mut self, editor: &mut Editor) -> anyhow::Result<()> {
         let is_cursor_visible = editor.mode == EditorMode::Nav || editor.mode == EditorMode::Insert;
         if is_cursor_visible {
             self.terminal.show_cursor()?;
@@ -41,6 +43,9 @@ impl Displayer {
         self.terminal.draw(|f| {
             let size = f.area();
 
+            // top
+            // editor
+            // bot (status)
             let vertical = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
@@ -50,9 +55,12 @@ impl Displayer {
                 ])
                 .split(size);
 
+            editor.editor_max_height = vertical[1].height - 1;
+
             Self::render_tab_bar(editor, f, vertical[0]);
             Self::render_status(editor, &diag, f, vertical[2]);
 
+            // tree, editor, diagnostics
             let main_h = if editor.show_tree {
                 Layout::default()
                     .direction(Direction::Horizontal)
@@ -63,6 +71,7 @@ impl Displayer {
                     ])
                     .split(vertical[1])
             } else {
+                // editor, diagnostics
                 Layout::default()
                     .direction(Direction::Horizontal)
                     .constraints([Constraint::Min(1), Constraint::Percentage(30)])
@@ -74,8 +83,10 @@ impl Displayer {
             }
 
             let editor_area = if editor.show_tree {
+                editor.editor_start_x = main_h[0].width + GUTTER_WIDTH;
                 main_h[1]
             } else {
+                editor.editor_start_x = 1;
                 main_h[0]
             };
             let side_panel = if editor.show_tree {
@@ -149,9 +160,8 @@ impl Displayer {
         );
 
         if show_cursor {
-            let gutter_width: u16 = 7;
-            let cursor_x = buf.cursor_x as u16 + gutter_width + area.x + 1;
-            let cursor_y = (buf.cursor_y - buf.scroll_y) as u16 + area.y + 1;
+            let cursor_x = buf.cursor_x as u16 + GUTTER_WIDTH + area.x + 1;
+            let cursor_y = (buf.cursor_y.saturating_sub(buf.scroll_y)) as u16 + area.y + 1;
             f.set_cursor_position(Position::new(cursor_x, cursor_y));
         }
     }

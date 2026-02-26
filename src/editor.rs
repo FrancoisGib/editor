@@ -33,6 +33,8 @@ pub struct Editor {
     pub diag_state: Arc<Mutex<DiagnosticState>>,
     pub keyboard_handler: KeyboardHandler,
     pub mouse_handler: MouseHandler,
+    pub editor_start_x: u16,
+    pub editor_max_height: u16,
 }
 
 impl Editor {
@@ -83,6 +85,8 @@ impl Editor {
             diag_state,
             keyboard_handler: KeyboardHandler::new(key_config),
             mouse_handler: MouseHandler::new(mouse_config),
+            editor_start_x: 0,
+            editor_max_height: 0,
         })
     }
 
@@ -109,7 +113,7 @@ impl Editor {
                 buf.compute_scroll(vh);
             }
 
-            displayer.draw(&self)?;
+            displayer.draw(&mut self)?;
 
             if event::poll(Duration::from_millis(50))? {
                 let event = event::read()?;

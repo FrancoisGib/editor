@@ -37,9 +37,13 @@ impl MouseHandler {
                 }
             }
             MouseEventKind::Down(button) if button.is_left() => {
+                let start_x = editor.editor_start_x as usize;
+                let max_height = editor.editor_max_height;
                 if let Some(buf) = editor.buf_mut() {
-                    buf.cursor_y = event.row as usize + buf.scroll_y - 2; // -2 equals top of window
-                    // TODO: set cursor x with the area in displayer and replace -2 with const
+                    if event.row <= max_height {
+                        buf.cursor_y = event.row as usize + buf.scroll_y - 2; // -2 equals top of window
+                    }
+                    buf.cursor_x = (event.column as usize - start_x).min(buf.visible_line_len(buf.cursor_y));
                 }
             }
             // MouseEventKind::Down(MouseButton::Left) => {
