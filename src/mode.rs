@@ -94,24 +94,34 @@ impl EditorMode {
 
     pub fn handle_mouse(self, mouse_event: MouseEvent, editor: &mut Editor) -> Result<Self> {
         match &self {
-            EditorMode::Nav | EditorMode::Insert => {}
-            _ => {
-                return Ok(self);
+            EditorMode::Nav => {}
+            EditorMode::Autocomplete => {
+                match mouse_event.kind {
+                    MouseEventKind::ScrollUp => {
+                        editor.completion.scroll_up();
+                    }
+                    MouseEventKind::ScrollDown => {
+                        editor.completion.scroll_down();
+                    }
+                    _ => {}
+                }
             }
-        }
+            EditorMode::Insert => {
+                let buf = if let Some(buf) = editor.buf_mut() {
+                    buf
+                } else {
+                    return Ok(self);
+                };
 
-        let buf = if let Some(buf) = editor.buf_mut() {
-            buf
-        } else {
-            return Ok(self);
-        };
-
-        match mouse_event.kind {
-            MouseEventKind::ScrollUp => {
-                buf.move_up(MOUSE_SCROLL);
-            }
-            MouseEventKind::ScrollDown => {
-                buf.move_down(MOUSE_SCROLL);
+                match mouse_event.kind {
+                    MouseEventKind::ScrollUp => {
+                        buf.move_up(MOUSE_SCROLL);
+                    }
+                    MouseEventKind::ScrollDown => {
+                        buf.move_down(MOUSE_SCROLL);
+                    }
+                    _ => {}
+                }
             }
             _ => {}
         }
@@ -165,10 +175,7 @@ impl EditorMode {
             }
             KeyCode::Char(c) => {
                 editor.insert_char(c);
-                if c == '.'
-                    || c == ':'
-                    || (c.is_alphanumeric() || c == '_')
-                        && editor.get_word_before_cursor().len() >= 2
+                if c == '.' || c == ':' || (c == '_' && editor.get_word_before_cursor().len() >= 2)
                 {
                     editor.trigger_completion();
                 }
@@ -318,6 +325,7 @@ impl EditorMode {
                 editor.delete_char();
                 Ok(Self::Insert)
             }
+            KeyCode::Char(' ') if key.modifiers == KeyModifiers::CONTROL => Ok(Self::Insert),
             KeyCode::Char(c) => {
                 editor.insert_char(c);
                 let prefix = editor.get_word_before_cursor();

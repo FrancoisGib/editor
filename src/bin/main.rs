@@ -1,16 +1,6 @@
 use anyhow::Result;
 
-use crate::editor::Editor;
-
-mod buffer;
-mod completion;
-mod diagnostic;
-mod displayer;
-mod editor;
-mod highlighter;
-mod lsp;
-mod mode;
-mod tree;
+use text_editor::editor::Editor;
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();

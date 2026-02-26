@@ -15,6 +15,7 @@ pub struct CompletionState {
     pub prefix: String,
     pub request_id: Option<i64>,
     pub doc: Option<String>,
+    pub scroll: u16,
     pub resolve_id: Option<(i64, usize)>,
 }
 
@@ -26,6 +27,7 @@ impl CompletionState {
             prefix: String::new(),
             request_id: None,
             doc: None,
+            scroll: 0,
             resolve_id: None,
         }
     }
@@ -47,6 +49,7 @@ impl CompletionState {
         if !self.items.is_empty() {
             self.selected = (self.selected + 1) % self.items.len();
             self.doc = None;
+            self.scroll = 0;   // 👈 IMPORTANT
         }
     }
 
@@ -58,7 +61,16 @@ impl CompletionState {
                 self.selected - 1
             };
             self.doc = None;
+            self.scroll = 0;   // 👈 IMPORTANT
         }
+    }
+
+    pub fn scroll_down(&mut self) {
+        self.scroll += 10;
+    }
+
+    pub fn scroll_up(&mut self) {
+        self.scroll = self.scroll.saturating_sub(10);
     }
 
     pub fn selected_item(&self) -> Option<&CompletionItem> {
@@ -121,6 +133,7 @@ pub fn parse_completions(response: &Value) -> Vec<CompletionItem> {
         return Vec::new();
     };
 
+    // let mut raw: Vec<CompletionItem> = raw_items
     raw_items
         .iter()
         .filter_map(|item| {
@@ -152,7 +165,11 @@ pub fn parse_completions(response: &Value) -> Vec<CompletionItem> {
                 raw: item.clone(),
             })
         })
+        // .collect();
         .collect()
+
+    // raw.sort_by(|a, b| kind_weight(&b.kind).cmp(&kind_weight(&a.kind)));
+    // raw
 }
 
 pub fn parse_resolve_doc(response: &Value) -> Option<String> {
@@ -167,3 +184,12 @@ pub fn parse_resolve_doc(response: &Value) -> Option<String> {
             })
         })
 }
+
+// fn kind_weight(kind: &str) -> u8 {
+//     match kind {
+//         "field" => 10,
+//         "var" => 9,
+//         "meth" => 8,
+//         _ => 0,
+//     }
+// }

@@ -117,10 +117,8 @@ impl Editor {
 
             displayer.draw(&self)?;
 
-            if event::poll(Duration::from_millis(50))? {
-                let event = event::read()?;
-                self.handle_event(event)?;
-            }
+            let event = event::read()?;
+            self.handle_event(event)?;
         }
 
         disable_raw_mode()?;
@@ -280,6 +278,7 @@ impl Editor {
             self.completion.request_id = Some(id);
             self.completion.prefix = self.get_word_before_cursor();
         }
+
         self.lsp = lsp;
     }
 

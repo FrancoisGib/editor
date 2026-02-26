@@ -13,6 +13,7 @@ pub struct LspClient {
     _process: Child,
     writer: BufWriter<std::process::ChildStdin>,
     responses: Arc<Mutex<HashMap<i64, Value>>>,
+    server_requests: Arc<Mutex<Vec<Value>>>,
     next_id: i64,
     uri: String,
     version: i64,
@@ -32,8 +33,10 @@ impl LspClient {
         let stdout = child.stdout.take()?;
         let writer = BufWriter::new(stdin);
         let responses: Arc<Mutex<HashMap<i64, Value>>> = Arc::new(Mutex::new(HashMap::new()));
+        let server_requests: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
 
         let resp = Arc::clone(&responses);
+        let srv_req = Arc::clone(&server_requests);
         thread::spawn(move || {
             let mut reader = BufReader::new(stdout);
             loop {
@@ -63,11 +66,25 @@ impl LspClient {
                     continue;
                 };
 
-                if let Some(id) = json.get("id").and_then(|i| i.as_i64())
-                    && let Ok(mut map) = resp.lock()
-                {
-                    map.insert(id, json);
+                let has_id = json.get("id").is_some();
+                let has_method = json.get("method").is_some();
+                let has_result_or_error =
+                    json.get("result").is_some() || json.get("error").is_some();
+
+                if has_id && has_result_or_error {
+                    // Response to our request
+                    if let Some(id) = json["id"].as_i64()
+                        && let Ok(mut map) = resp.lock()
+                    {
+                        map.insert(id, json);
+                    }
+                } else if has_id && has_method {
+                    // Server-initiated request (needs a reply)
+                    if let Ok(mut reqs) = srv_req.lock() {
+                        reqs.push(json);
+                    }
                 }
+                // else: notification from server, ignore
             }
         });
 
@@ -77,6 +94,7 @@ impl LspClient {
             _process: child,
             writer,
             responses,
+            server_requests,
             next_id: 1,
             uri,
             version: 0,
@@ -93,16 +111,78 @@ impl LspClient {
                         "completion": {
                             "completionItem": {
                                 "snippetSupport": false,
-                                "resolveSupport": { "properties": ["detail", "documentation"] }
+                                "additionalTextEditsSupport": true,
+                                "resolveSupport": { "properties": ["detail", "documentation", "additionalTextEdits"] }
                             }
+                        }
+                    },
+                    "workspace": {
+                        "configuration": true
+                    }
+                },
+                "initializationOptions": {
+                    "completion": {
+                        "autoimport": {
+                            "enable": true
                         }
                     }
                 },
-                "rootUri": null,
             }),
         );
         self.wait_response(id, 10000);
         self.send_notification("initialized", serde_json::json!({}));
+
+        // After initialized, rust-analyzer will send workspace/configuration
+        // requests. Process them.
+        // thread::sleep(Duration::from_millis(100));
+        // self.process_server_requests();
+    }
+
+    /// Handle pending server-initiated requests (workspace/configuration, etc.)
+    pub fn process_server_requests(&mut self) {
+        let reqs: Vec<Value> = {
+            let mut srv = self.server_requests.lock().unwrap();
+            std::mem::take(&mut *srv)
+        };
+
+        for req in reqs {
+            // let method = req["method"].as_str().unwrap_or("");
+            let id = &req["id"];
+            self.send_response(id, Value::Null);
+
+            // match method {
+            //     "workspace/configuration" => {
+            //         // Return our rust-analyzer config for each requested section
+            //         let items = req["params"]["items"]
+            //             .as_array()
+            //             .map(|a| a.len())
+            //             .unwrap_or(1);
+
+            //         // Send back the config for each item requested
+            //         let config = serde_json::json!({
+            //             "completion": {
+            //                 "autoimport": {
+            //                     "enable": true
+            //                 }
+            //             }
+            //         });
+
+            //         let results: Vec<Value> = (0..items).map(|_| config.clone()).collect();
+            //         self.send_response(id, serde_json::json!(results));
+            //     }
+            //     "client/registerCapability" => {
+            //         // Just acknowledge
+            //         self.send_response(id, Value::Null);
+            //     }
+            //     "window/workDoneProgress/create" => {
+            //         self.send_response(id, Value::Null);
+            //     }
+            //     _ => {
+            //         // Unknown request, respond with null
+            //         self.send_response(id, Value::Null);
+            //     }
+            // }
+        }
     }
 
     pub fn did_open(&mut self, uri: &str, text: &str) {
@@ -133,6 +213,9 @@ impl LspClient {
     }
 
     pub fn request_completion(&mut self, line: usize, character: usize) -> i64 {
+        // Process any pending server requests before completion
+        self.process_server_requests();
+
         self.send_request(
             "textDocument/completion",
             serde_json::json!({
@@ -163,6 +246,15 @@ impl LspClient {
         id
     }
 
+    fn send_response(&mut self, id: &Value, result: Value) {
+        let msg = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": result,
+        });
+        self.send_raw(&msg);
+    }
+
     fn send_notification(&mut self, method: &str, params: Value) {
         let msg = serde_json::json!({
             "jsonrpc": "2.0",
@@ -183,7 +275,7 @@ impl LspClient {
         let _ = self.writer.flush();
     }
 
-    fn wait_response(&self, id: i64, timeout_ms: u64) -> Option<Value> {
+    pub fn wait_response(&self, id: i64, timeout_ms: u64) -> Option<Value> {
         let start = Instant::now();
         loop {
             if let Some(resp) = self.get_response(id) {
